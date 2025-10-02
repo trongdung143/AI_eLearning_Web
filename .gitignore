@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+.env
+.idea/
+src/test/
+api/download.py
+api/login.py
+api/home.py
+note.txt

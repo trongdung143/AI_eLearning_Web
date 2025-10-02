@@ -1,0 +1,1 @@
+Start-Process -WindowStyle Hidden -FilePath "ngrok.exe" -ArgumentList "start --all"
