@@ -4,12 +4,19 @@ from typing import Optional, AsyncGenerator
 import json
 import os
 from src.agents.workflow import graph
-from langchain_core.messages import HumanMessage, AIMessage, RemoveMessage, SystemMessage
-from src.utils.handler import save_upload_file_into_temp
+from langchain_core.messages import (
+    HumanMessage,
+    AIMessage,
+    RemoveMessage,
+    SystemMessage,
+)
+
+# from src.utils.handler import save_upload_file_into_temp
 from langgraph.types import Command
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
 router = APIRouter()
+
 
 async def generate_chat_stream(
     message: str,
@@ -20,28 +27,14 @@ async def generate_chat_stream(
     try:
         input_state = None
         config = {"configurable": {"thread_id": conversation_id}}
-        if not graph.get_state(config).values:
-            input_state = {
-                "messages": [
-                    HumanMessage(content=message)],
-                "human": None,
-                "next_agent": "memory",
-                "prev_agent": None,
-                "thread_id": conversation_id,
-                "tasks": None,
-                "results": None,
-                "assigned_agents": None,
-                "file_path": file_path,
-            }
-        else:
-            input_state = {
-                "messages": [
-                    HumanMessage(content=message)],
-                "human": None,
-                "next_agent": "memory",
-                "assigned_agents": None,
-                "file_path": file_path,
-            }
+        input_state = {
+            "messages": [HumanMessage(content=message)],
+            "thread_id": "conversation_id",
+            "lesson_id": "",
+            "task": "",
+            "result": "",
+            "file_path": "file_path",
+        }
 
         if messages:
             old_messages = []
@@ -102,8 +95,8 @@ async def chatbot_stream(
     messages: Optional[list[dict]] = Form(None),
 ) -> StreamingResponse:
     file_path = None
-    if file:
-        file_path = save_upload_file_into_temp(file, conversation_id)
+    # if file:
+    #     file_path = save_upload_file_into_temp(file, conversation_id)
     return StreamingResponse(
         generate_chat_stream(message, conversation_id, file_path, messages),
         media_type="text/event-stream",

@@ -24,10 +24,3 @@ LANGSMITH_ENDPOINT = os.getenv("LANGSMITH_ENDPOINT")
 LANGSMITH_API_KEY = os.getenv("LANGSMITH_API_KEY")
 LANGSMITH_PROJECT = os.getenv("LANGSMITH_PROJECT")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
-
-# try:
-#     with open("src/config/system/supported_apps.json", "r", encoding="utf-8") as f:
-#         SUPPORTED_APPS = json.load(f)
-# except Exception as e:
-#     SUPPORTED_APPS = {}
-#     print(f"Error loading supported_apps.json: {e}")

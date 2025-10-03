@@ -10,13 +10,12 @@ from src.config.setup import GOOGLE_API_KEY
 
 
 class BaseAgent:
+
     def __init__(
         self,
-            agent_name: str,
-            tools: Sequence[BaseTool] | None = None,
-            state: type[State] = State,
-            structure_output: dict | None = None,
-            model: object | None = None,
+        agent_name: str,
+        state: type[State] = State,
+        tools: Sequence[BaseTool] | None = None,
     ) -> None:
         self._tools = list(tools or [])
         self._agent_name = agent_name
@@ -61,22 +60,3 @@ class BaseAgent:
         # graph.set_entry_point(self._agent_name)
         # graph.set_finish_point("human_node")
         return self._sub_graph.compile(name=self._agent_name)
-
-    def update_work(
-            self, state: State, task: str, result: str
-    ) -> tuple[dict[str, list[str]], dict[str, list[str]], dict[str, list[str]] | None]:
-        current_tasks: dict[str, list[str]] = state.get("tasks") or {}
-        current_results: dict[str, list[str]] = state.get("results") or {}
-        assigned_agents: dict[str, list[str]] = state.get("assigned_agents") or {}
-        agent_name = self._agent_name
-        if assigned_agents is not None:
-            assigned_agents[agent_name] = []
-        current_tasks.setdefault(agent_name, []).append(task)
-        current_results.setdefault(agent_name, []).append(result)
-
-        return current_tasks, current_results, assigned_agents
-
-    def get_task(self, state) -> str | None:
-        last_message = state.get("messages")[-1].content
-        tasks = state.get("assigned_agents", {}).get(self._agent_name, [])
-        return  f"### Yêu cầu (user)\n{last_message}\n\n### Công việc cần thực hiện\n" + "\n".join(tasks)

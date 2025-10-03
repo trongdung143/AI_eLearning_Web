@@ -11,7 +11,6 @@ from pydantic import BaseModel
 from src.agents.base import BaseAgent
 from src.agents.rag.prompt import prompt_rag, prompt_supervisor, prompt_reviewer
 from src.agents.state import State
-from src.agents.supervisor.supervisor import SupervisorAgent
 from src.config.setup import GOOGLE_API_KEY
 
 
@@ -23,18 +22,42 @@ class RagState(dict):
     vectorstore_path: str
     retriever: list[str] | None = None
 
-class SupervisorResponseFormatForRag(BaseModel):
-    content: str = Field(description="feedback")
+
+class SupervisorResponseFormat(BaseModel):
+    content: str = Field(description="Feedback")
     binary_score: str = Field(description="yes or no")
 
-class SupervisorForRag(SupervisorAgent):
+
+class ReviewerResponseFormat(BaseModel):
+    content: str = Field(description="NAH")
+    binary_score: str = Field(description="yes or no")
+
+
+class Supervisor(BaseAgent):
     def __init__(self):
-        super().__init__(agent_name="supervisor", state=RagState, prompt=prompt_supervisor, response_format=SupervisorResponseFormatForRag)
+        super().__init__(
+            agent_name="supervisor",
+            state=RagState,
+        )
+
+        self._prompt = prompt_supervisor
+
+        self._chain = self._prompt | self._model.with_structured_output(
+            SupervisorResponseFormat
+        )
 
     async def process(self, state: RagState) -> RagState:
         result = state.get("result")
         task = state.get("task")
-        response = await self._chain.ainvoke({"task": [HumanMessage(content=f"### câu hỏi\n{task}\n\n### Câu trả lời\n{result}")]})
+        response = await self._chain.ainvoke(
+            {
+                "task": [
+                    HumanMessage(
+                        content=f"### câu hỏi\n{task}\n\n### Câu trả lời\n{result}"
+                    )
+                ]
+            }
+        )
         if response.binary_score == "yes":
             next_node = "__end__"
         else:
@@ -42,40 +65,49 @@ class SupervisorForRag(SupervisorAgent):
         state.update(next_node=next_node)
         return state
 
-class ReviewerResponseFormatForRag(BaseModel):
-    content: str = Field(description="NAH")
-    binary_score: str = Field(description="yes or no")
 
-class ReviewerForRag(SupervisorAgent):
+class Reviewer(BaseAgent):
     def __init__(self):
-        super().__init__(agent_name="reviewer", state=RagState, prompt=prompt_reviewer, response_format=ReviewerResponseFormatForRag)
+        super().__init__(
+            agent_name="reviewer",
+            state=RagState,
+        )
+
+        self._prompt = prompt_supervisor
+
+        self._chain = self._prompt | self._model.with_structured_output(
+            ReviewerResponseFormat
+        )
 
     async def process(self, state: RagState) -> RagState:
         retriever = state.get("retriever")
         filtered_docs = []
         next_node = "genarate"
         for doc in retriever:
-            response = await self._chain.ainvoke({"task": [HumanMessage(content=f"### Tài liệu\n{doc}\n\n### Hãy đánh giá")]})
+            response = await self._chain.ainvoke(
+                {
+                    "task": [
+                        HumanMessage(content=f"### Tài liệu\n{doc}\n\n### Hãy đánh giá")
+                    ]
+                }
+            )
             if response.binary_score == "yes":
-               filtered_docs.append(doc)
+                filtered_docs.append(doc)
         if len(filtered_docs) == 0:
             next_node = "re_question"
 
         state.update(next_node=next_node, retriever=filtered_docs)
         return state
 
+
 class RagAgent(BaseAgent):
-    VALID_NODES = [
-        "re_question",
-        "genarate",
-        "__end__"
-    ]
+    VALID_NODES = ["re_question", "genarate", "__end__"]
+
     def __init__(self, tools: Sequence[BaseTool] | None = None) -> None:
         super().__init__(
             agent_name="rag",
             tools=tools,
             state=RagState,
-            model=None,
         )
 
         self._prompt = prompt_rag
@@ -84,9 +116,9 @@ class RagAgent(BaseAgent):
 
         self._retriever = None
 
-        self._supervisor = SupervisorForRag()
+        self._supervisor = Supervisor()
 
-        self._reviewer = ReviewerForRag()
+        self._reviewer = Reviewer()
 
         self._embedding = GoogleGenerativeAIEmbeddings(
             model="models/gemini-embedding-001",
@@ -116,7 +148,6 @@ class RagAgent(BaseAgent):
         self._sub_graph.add_node("genarate", self._genarate)
         self._sub_graph.add_node("re_question", self._re_question)
 
-
         self._sub_graph.set_entry_point("docs_to_vec")
 
         self._sub_graph.add_edge("docs_to_vec", "retrieve")
@@ -128,7 +159,7 @@ class RagAgent(BaseAgent):
             {
                 "re_question": "re_question",
                 "genarate": "genarate",
-            }
+            },
         )
 
         self._sub_graph.add_edge("re_question", "retrieve")
@@ -138,21 +169,22 @@ class RagAgent(BaseAgent):
             "supervisor",
             self._route,
             {
-                "__end__" : "__end__",
-                "genarate" : "genarate",
-            }
+                "__end__": "__end__",
+                "genarate": "genarate",
+            },
         )
-
-
 
     async def _document_to_vector(self, state: RagState) -> RagState:
         document_path = state.get("document_path")
         vector_store_path = state.get("vectorstore_path")
         if not os.path.exists(document_path):
             raise FileNotFoundError(f"PDF not found at: {document_path}")
+        print("oko")
         loader = PyPDFLoader(document_path)
         documents = loader.load()
-        text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(chunk_size=500, chunk_overlap=100)
+        text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
+            chunk_size=500, chunk_overlap=100
+        )
         documents_splits = text_splitter.split_documents(documents)
 
         # vectorstore = await Chroma.afrom_documents(
@@ -172,13 +204,13 @@ class RagAgent(BaseAgent):
         vectorstore.save_local(vector_store_path)
 
         retriever = vectorstore.as_retriever(
-            search_type="similarity",
-            search_kwargs={
-                "k": 4,
-                "score_threshold": 0.8,
-                "fetch_k": 20,
-                "lambda_mult": 0.5,
-            }
+            # search_type="similarity",
+            # search_kwargs={
+            #     "k": 4,
+            #     "score_threshold": 0.8,
+            #     "fetch_k": 20,
+            #     "lambda_mult": 0.5,
+            # },
         )
 
         self._retriever = retriever
@@ -186,15 +218,22 @@ class RagAgent(BaseAgent):
 
     async def _retrieve(self, state: RagState) -> RagState:
         task = state.get("task")
-        response = self._retriever.ainvoke(task)
+        response = await self._retriever.ainvoke(task)
         retriever = [doc.page_content for doc in response]
+        print(retriever)
         state.update(retriever=retriever)
         return state
 
     async def _genarate(self, state: RagState) -> RagState:
         task = state.get("task")
         txt = self._format_docs(state)
-        response = await self._chain.ainvoke({"task": [HumanMessage(content=f"### Câu hỏi{task}\n\n### Tài liệu\n{txt}")]})
+        response = await self._chain.ainvoke(
+            {
+                "task": [
+                    HumanMessage(content=f"### Câu hỏi{task}\n\n### Tài liệu\n{txt}")
+                ]
+            }
+        )
         result = response.content
         state.update(result=result)
         return state
@@ -203,24 +242,16 @@ class RagAgent(BaseAgent):
         return state
 
     async def process(self, state: State) -> State:
-        task = self.get_task(state)
+        print("okok")
         result = None
         input_state = {
-            "task": task,
+            "task": "dự án đầu tiên về chủ để gì",
             "result": "",
-            "conversation_id": state.get("thread_id"),
-            "document_path":  "src/data/temp/test.pdf",
-            "vectorstore_path": "src/data/temp/test" # + f"{state.get('thread_id')}",
+            "lesson_id": "",
+            "document_path": "src/data/temp/1.pdf",
+            "vectorstore_path": "src/data/temp/1",
         }
         sub_graph = self.get_subgraph()
         response = await sub_graph.ainvoke(input=input_state)
-        result = response.content
-        current_tasks, current_results, assigned_agents = self.update_work(state, task, result)
-        state.update(
-            human=False,
-            prev_agent=self._agent_name,
-            tasks=current_tasks,
-            results=current_results,
-            assigned_agents=assigned_agents,
-        )
+        print(response.content)
         return state
