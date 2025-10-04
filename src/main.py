@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from src.api import chat
+from src.api import qa
 from fastapi.responses import JSONResponse
 from langchain_core.output_parsers import StrOutputParser
 
@@ -37,5 +37,5 @@ async def block_malicious_requests(request: Request, call_next):
         return JSONResponse(status_code=500, content={"detail": "Lỗi máy chủ nội bộ."})
 
 
-app.include_router(chat.router)
+app.include_router(qa.router)
 # app.include_router(login.router)

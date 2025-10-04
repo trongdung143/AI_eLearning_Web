@@ -18,22 +18,23 @@ from langgraph.graph.message import REMOVE_ALL_MESSAGES
 router = APIRouter()
 
 
-async def generate_chat_stream(
-    message: str,
-    conversation_id: str,
-    file_path: Optional[str] = None,
+async def generate_qa_stream(
+    question: str,
+    user_id: str,
+    lesson_id: str,
+    type_request: str,
     messages: Optional[list[dict]] = None,
 ) -> AsyncGenerator[str, None]:
     try:
         input_state = None
-        config = {"configurable": {"thread_id": conversation_id}}
+        config = {"configurable": {"thread_id": lesson_id}}
         input_state = {
-            "messages": [HumanMessage(content=message)],
-            "thread_id": "conversation_id",
-            "lesson_id": "",
-            "task": "",
+            "messages": [HumanMessage(content=question)],
+            "user_id": user_id,
+            "lesson_id": lesson_id,
+            "type_request": type_request,
+            "task": question,
             "result": "",
-            "file_path": "file_path",
         }
 
         if messages:
@@ -50,12 +51,6 @@ async def generate_chat_stream(
                 },
             )
 
-        interrupt = graph.get_state(config=config).interrupts
-        if interrupt:
-            input_state = {
-                "messages": [HumanMessage(content=message)],
-            }
-            input_state = Command(resume=message)
         async for event in graph.astream(
             input=input_state,
             config=config,
@@ -74,9 +69,8 @@ async def generate_chat_stream(
                 agent = meta.get("langgraph_node", "unknown")
                 if subgraph:
                     agent = subgraph[0].split(":")[0]
-                yield f"data: {json.dumps({'type': 'chunk',
-                                            'response': response.content,
-                                            'agent': agent}, ensure_ascii=False)}\n\n"
+                if agent == "writer":
+                    yield f"data: {json.dumps({'type': 'chunk','response': response.content, "agent": agent}, ensure_ascii=False)}\n\n"
         yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
 
     except Exception as e:
@@ -87,18 +81,17 @@ async def generate_chat_stream(
         yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
 
 
-@router.post("/chat")
-async def chatbot_stream(
-    message: str = Form(""),
-    file: Optional[UploadFile] = File(None),
-    conversation_id: str = Cookie(None),
+@router.post("/qa")
+async def qa_stream(
+    question: str = Form(""),
+    user_id: str = Form(""),
+    lesson_id: str = Form(""),
+    type_request: str = Form(""),
     messages: Optional[list[dict]] = Form(None),
 ) -> StreamingResponse:
-    file_path = None
-    # if file:
-    #     file_path = save_upload_file_into_temp(file, conversation_id)
+
     return StreamingResponse(
-        generate_chat_stream(message, conversation_id, file_path, messages),
+        generate_qa_stream(question, user_id, lesson_id, type_request, messages),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
