@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from src.api import qa
+from src.api import qa, lecturer
 from fastapi.responses import JSONResponse
 from langchain_core.output_parsers import StrOutputParser
 
@@ -38,4 +38,4 @@ async def block_malicious_requests(request: Request, call_next):
 
 
 app.include_router(qa.router)
-# app.include_router(login.router)
+app.include_router(lecturer.router)
