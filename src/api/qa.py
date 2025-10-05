@@ -27,14 +27,15 @@ async def generate_qa_stream(
 ) -> AsyncGenerator[str, None]:
     try:
         input_state = None
-        config = {"configurable": {"thread_id": lesson_id}}
+        config = {"configurable": {"thread_id": lesson_id, "user_id": user_id, "lesson_id": lesson_id}}
         input_state = {
             "messages": [HumanMessage(content=question)],
-            "user_id": user_id,
-            "lesson_id": lesson_id,
             "type_request": type_request,
             "task": question,
-            "result": "",
+            "result": None,
+            "lecture": None,
+            "quiz": None,
+            "document_path": None,
         }
 
         if messages:
@@ -89,7 +90,6 @@ async def qa_stream(
     type_request: str = Form(""),
     messages: Optional[list[dict]] = Form(None),
 ) -> StreamingResponse:
-
     return StreamingResponse(
         generate_qa_stream(question, user_id, lesson_id, type_request, messages),
         media_type="text/event-stream",

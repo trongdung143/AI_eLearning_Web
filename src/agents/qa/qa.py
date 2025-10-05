@@ -1,14 +1,15 @@
+import logging
 import os
 from typing import Sequence
 
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores import FAISS
+from langchain_core.documents import Document
+from langchain_core.runnables.config import RunnableConfig
 from langchain_core.tools.base import BaseTool, Field
 from langchain_google_genai.embeddings import GoogleGenerativeAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langsmith import traceable
 from pydantic import BaseModel
-from langchain_core.documents import Document
 
 from src.agents.base import BaseAgent
 from src.agents.qa.prompt import prompt_qa, prompt_supervisor, prompt_reviewer, prompt_question_rewrite
@@ -49,16 +50,15 @@ class Supervisor(BaseAgent):
         )
 
     async def process(self, state: QaState) -> QaState:
-        genarate = state.get("genarate")
-        question = state.get("question")
-        response = await self._chain.ainvoke({"question": question, "genarate": genarate})
-        binary_score = response.binary_score
-        next_node = None
-        if binary_score == "yes":
-            next_node = "__end__"
-        elif binary_score == "no":
-            next_node = "genarate"
-        state.update(next_node=next_node)
+        try:
+            genarate = state.get("genarate")
+            question = state.get("question")
+            response = await self._chain.ainvoke({"question": question, "genarate": genarate})
+            binary_score = response.binary_score
+            next_node = "__end__" if binary_score == "yes" else "genarate"
+            state.update(next_node=next_node)
+        except Exception as e:
+            logging.exception(e)
         return state
 
 
@@ -76,17 +76,16 @@ class Reviewer(BaseAgent):
         )
 
     async def process(self, state: QaState) -> QaState:
-        documents = state.get("documents")
-        next_node = "genarate"
-        question = state.get("question")
-        doc_txt = documents[0].page_content
-        response = await self._chain.ainvoke({"question": question, "document": doc_txt})
-        binary_score = response.binary_score
-        if binary_score == "yes":
-            next_node = "genarate"
-        elif binary_score == "no":
-            next_node = "re_question"
-        state.update(next_node=next_node)
+        try:
+            documents = state.get("documents")
+            question = state.get("question")
+            doc_txt = documents[0].page_content
+            response = await self._chain.ainvoke({"question": question, "document": doc_txt})
+            binary_score = response.binary_score
+            next_node = "genarate" if binary_score == "yes" else "re_question"
+            state.update(next_node=next_node)
+        except Exception as e:
+            logging.exception(e)
         return state
 
 class QuestionReWrite(BaseAgent):
@@ -103,9 +102,12 @@ class QuestionReWrite(BaseAgent):
         )
 
     async def process(self, state: QaState) -> QaState:
-        question = state.get("question")
-        response = await self._chain.ainvoke({"question": question})
-        state.update(question=response.content)
+        try:
+            question = state.get("question")
+            response = await self._chain.ainvoke({"question": question})
+            state.update(question=response.content)
+        except Exception as e:
+            logging.exception(e)
         return state
 
 
@@ -222,37 +224,44 @@ class QaAgent(BaseAgent):
         return state
 
     async def _retrieve(self, state: QaState) -> QaState:
-        question = state.get("question")
-        response = await self._retriever.ainvoke(question)
-        state.update(documents=response)
+        try:
+            question = state.get("question")
+            response = await self._retriever.ainvoke(question)
+            state.update(documents=response)
+        except Exception as e:
+            logging.exception(e)
         return state
 
-    @traceable
     async def _genarate(self, state: QaState) -> QaState:
-        question = state.get("question")
-        full_txt = self._format_document(state)
-        response = await self._chain.ainvoke({"context": full_txt, "question": question})
-        genarate = response.content
-        state.update(genarate=genarate)
+        try:
+            question = state.get("question")
+            full_txt = self._format_document(state)
+            response = await self._chain.ainvoke({"context": full_txt, "question": question})
+            genarate = response.content
+            state.update(genarate=genarate)
+        except Exception as e:
+            logging.exception(e)
         return state
 
-    async def process(self, state : State) -> State:
-        result = None
-        question = state.get("task")
-        lesson_id = state.get("lesson_id")
-        save_dir = "src/data/"
-        document_path = f"{save_dir}pdf/{lesson_id}.pdf"
-        vectorstore_path = f"{save_dir}vectorstore/{lesson_id}"
-        input_state = {
-            "question": question,
-            "genarate": "",
-            "next_node": "",
-            "document_path": document_path,
-            "vectorstore_path": vectorstore_path,
-            "documents": [],
-        }
-        sub_graph = self.get_subgraph()
-        response = await sub_graph.ainvoke(input=input_state)
-        state.update(result=response.get("genarate"))
+    async def process(self, state : State, config : RunnableConfig) -> State:
+        try:
+            question = state.get("task")
+            lesson_id = config.get("configurable").get("lesson_id")
+            save_dir = "src/data/"
+            document_path = f"{save_dir}pdf/{lesson_id}.pdf"
+            vectorstore_path = f"{save_dir}vectorstore/{lesson_id}"
+            input_state = {
+                "question": question,
+                "genarate": "",
+                "next_node": "",
+                "document_path": document_path,
+                "vectorstore_path": vectorstore_path,
+                "documents": [],
+            }
+            sub_graph = self.get_subgraph()
+            response = await sub_graph.ainvoke(input=input_state)
+            state.update(result=response.get("genarate"))
+        except Exception as e:
+            logging.exception(e)
         return state
 

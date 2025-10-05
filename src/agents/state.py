@@ -2,8 +2,9 @@ from langgraph.graph import MessagesState
 
 
 class State(MessagesState):
-    user_id: str
-    lesson_id: str
     type_request: str
-    task: str
-    result: str
+    task: str | None
+    result: str | None
+    lecture: dict[str, str] | None
+    quiz: dict[str, list[str]] | None
+    document_path: str | None

@@ -21,9 +21,9 @@ class WriterAgent(BaseAgent):
 
     @traceable
     async def process(self, state: State) -> State:
-        content = state.get("result")
-        question = state.get("task")
         try:
+            content = state.get("result")
+            question = state.get("task")
             response = await self._chain.ainvoke({"question": question, "content": content})
             result = response.content
             state.update(result=result, messages=[response])

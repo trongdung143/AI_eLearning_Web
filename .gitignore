@@ -5,7 +5,4 @@ __pycache__/
 .env
 .idea/
 src/test/
-api/download.py
-api/login.py
-api/home.py
 note.txt

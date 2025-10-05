@@ -13,10 +13,14 @@ class BaseAgent:
 
     def __init__(
         self,
-        agent_name: str,
-        state: type[State] = State,
-        tools: Sequence[BaseTool] | None = None,
+            agent_name: str,
+            state: type[State] = State,
+            tools: Sequence[BaseTool] | None = None,
     ) -> None:
+        """
+
+        :rtype: None
+        """
         self._tools = list(tools or [])
         self._agent_name = agent_name
 
