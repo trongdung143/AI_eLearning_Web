@@ -24,14 +24,14 @@ prompt_lecturer = ChatPromptTemplate.from_messages(
             "human",
             """
             Đây là phần nội dung của **trang trước đó** (để bạn hiểu ngữ cảnh):
-            {previous_page}
+            {previous_content}
 
             Và đây là nội dung của **trang hiện tại** cần viết lại:
-            {current_page}
+            {current_content}
 
             Hãy viết lại **trang hiện tại** theo phong cách giảng viên,
             sao cho mạch nội dung liền với trang trước.
-            """
+            """,
         ),
     ]
 )

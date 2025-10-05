@@ -6,12 +6,12 @@ router = APIRouter()
 
 TEMP_DIR = "src/data/pdf"
 
+
 @router.post("/lecturer")
 async def qa_stream(
     type_request: str = Form(""),
     course_id: str = Form(""),
     pdf_file: UploadFile = File(...),
-
 ) -> tuple[str, dict[str, str]]:
 
     lesson_id = str(uuid.uuid4())
@@ -20,7 +20,13 @@ async def qa_stream(
         content = await pdf_file.read()
         f.write(content)
 
-    config = {"configurable": {"thread_id": lesson_id, "lesson_id": lesson_id}}
+    config = {
+        "configurable": {
+            "thread_id": lesson_id,
+            "lesson_id": lesson_id,
+            "course_id": course_id,
+        }
+    }
     input_state = {
         "type_request": type_request,
         "task": None,
@@ -33,11 +39,4 @@ async def qa_stream(
     response = await graph.ainvoke(input=input_state, config=config)
 
     lecture = response.get("lecture")
-    return lesson_id ,lecture
-
-
-
-
-
-
-
+    return lesson_id, lecture
