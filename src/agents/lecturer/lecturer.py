@@ -1,7 +1,6 @@
 from typing import Sequence
 import logging
 import os
-import time
 
 from langchain_core.tools.base import BaseTool
 from langchain_core.runnables.config import RunnableConfig
@@ -40,7 +39,7 @@ class LecturerAgent(BaseAgent):
     async def _content_rewrite(self, state: LecturerState) -> LecturerState:
         return state
 
-    async def _read_document(self, state: LecturerState) -> LecturerState:
+    async def _read_documents(self, state: LecturerState) -> LecturerState:
         document_path = state.get("document_path")
         if os.path.exists(document_path):
             try:

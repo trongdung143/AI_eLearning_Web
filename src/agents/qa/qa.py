@@ -7,12 +7,18 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from langchain_core.runnables.config import RunnableConfig
 from langchain_core.tools.base import BaseTool, Field
+from langchain_core.vectorstores.base import VectorStoreRetriever
 from langchain_google_genai.embeddings import GoogleGenerativeAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel
 
 from src.agents.base import BaseAgent
-from src.agents.qa.prompt import prompt_qa, prompt_supervisor, prompt_reviewer, prompt_question_rewrite
+from src.agents.qa.prompt import (
+    prompt_qa,
+    prompt_supervisor,
+    prompt_reviewer,
+    prompt_question_rewrite,
+)
 from src.agents.state import State
 from src.config.setup import GOOGLE_API_KEY
 
@@ -53,7 +59,9 @@ class Supervisor(BaseAgent):
         try:
             genarate = state.get("genarate")
             question = state.get("question")
-            response = await self._chain.ainvoke({"question": question, "genarate": genarate})
+            response = await self._chain.ainvoke(
+                {"question": question, "genarate": genarate}
+            )
             binary_score = response.binary_score
             next_node = "__end__" if binary_score == "yes" else "genarate"
             state.update(next_node=next_node)
@@ -80,13 +88,16 @@ class Reviewer(BaseAgent):
             documents = state.get("documents")
             question = state.get("question")
             doc_txt = documents[0].page_content
-            response = await self._chain.ainvoke({"question": question, "document": doc_txt})
+            response = await self._chain.ainvoke(
+                {"question": question, "document": doc_txt}
+            )
             binary_score = response.binary_score
             next_node = "genarate" if binary_score == "yes" else "re_question"
             state.update(next_node=next_node)
         except Exception as e:
             logging.exception(e)
         return state
+
 
 class QuestionReWrite(BaseAgent):
     def __init__(self):
@@ -125,8 +136,6 @@ class QaAgent(BaseAgent):
 
         self._chain = self._prompt | self._model
 
-        self._retriever = None
-
         self._supervisor = Supervisor()
 
         self._reviewer = Reviewer()
@@ -142,10 +151,10 @@ class QaAgent(BaseAgent):
 
     def _format_document(self, state: QaState) -> str:
         documents = state.get("documents")
-        txt = ""
+        full_txt = ""
         for doc in documents:
-            txt = txt + doc.page_content  + "\n"
-        return txt
+            full_txt = full_txt + doc.page_content + "\n\n"
+        return full_txt
 
     def _route(self, state: QaState) -> str:
         next_node = state.get("next_node").strip()
@@ -161,7 +170,6 @@ class QaAgent(BaseAgent):
         self._sub_graph.add_node("re_question", self._question_rewrite.process)
         self._sub_graph.add_node("supervisor", self._supervisor.process)
         self._sub_graph.add_node("genarate", self._genarate)
-
 
         self._sub_graph.set_entry_point("docs_to_vec")
 
@@ -189,23 +197,36 @@ class QaAgent(BaseAgent):
             },
         )
 
+    def _load_retriever(self, state: QaState) -> VectorStoreRetriever:
+        vectorstore_path = state.get("vectorstore_path")
+        if os.path.exists(vectorstore_path):
+            try:
+                vectorstore = FAISS.load_local(
+                    folder_path=vectorstore_path,
+                    embeddings=self._embedding,
+                    allow_dangerous_deserialization=True,
+                )
+                retriever = vectorstore.as_retriever(
+                    search_type="similarity", search_kwargs={"k": 4}
+                )
+                return retriever
+            except Exception as e:
+                logging.exception(e)
+        return None
+
     async def _document_to_vector(self, state: QaState) -> QaState:
         document_path = state.get("document_path")
         vectorstore_path = state.get("vectorstore_path")
 
-        if os.path.exists(vectorstore_path):
-            vectorstore = FAISS.load_local(folder_path=vectorstore_path, embeddings=self._embedding, allow_dangerous_deserialization=True )
-            retriever = vectorstore.as_retriever()
-            self._retriever = retriever
-            return state
-
-        else:
+        if not os.path.exists(vectorstore_path):
             if os.path.exists(document_path):
                 try:
                     loader = PyPDFLoader(document_path)
                     documents = loader.load()
-                    text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
-                        chunk_size=500, chunk_overlap=100
+                    text_splitter = (
+                        RecursiveCharacterTextSplitter.from_tiktoken_encoder(
+                            chunk_size=500, chunk_overlap=100
+                        )
                     )
                     documents_splits = text_splitter.split_documents(documents)
 
@@ -215,18 +236,16 @@ class QaAgent(BaseAgent):
                     )
 
                     vectorstore.save_local(vectorstore_path)
-
-                    retriever = vectorstore.as_retriever()
-
-                    self._retriever = retriever
                 except Exception as e:
-                    pass
+                    logging.exception(e)
         return state
 
     async def _retrieve(self, state: QaState) -> QaState:
         try:
+
             question = state.get("question")
-            response = await self._retriever.ainvoke(question)
+            retriever = self._load_retriever(state)
+            response = await retriever.ainvoke(question)
             state.update(documents=response)
         except Exception as e:
             logging.exception(e)
@@ -236,20 +255,24 @@ class QaAgent(BaseAgent):
         try:
             question = state.get("question")
             full_txt = self._format_document(state)
-            response = await self._chain.ainvoke({"context": full_txt, "question": question})
+            response = await self._chain.ainvoke(
+                {"context": full_txt, "question": question}
+            )
             genarate = response.content
             state.update(genarate=genarate)
         except Exception as e:
             logging.exception(e)
         return state
 
-    async def process(self, state : State, config : RunnableConfig) -> State:
+    async def process(self, state: State, config: RunnableConfig) -> State:
         try:
             question = state.get("task")
             lesson_id = config.get("configurable").get("lesson_id")
             save_dir = "src/data/"
+
             document_path = f"{save_dir}pdf/{lesson_id}.pdf"
             vectorstore_path = f"{save_dir}vectorstore/{lesson_id}"
+
             input_state = {
                 "question": question,
                 "genarate": "",
@@ -258,10 +281,10 @@ class QaAgent(BaseAgent):
                 "vectorstore_path": vectorstore_path,
                 "documents": [],
             }
+
             sub_graph = self.get_subgraph()
             response = await sub_graph.ainvoke(input=input_state)
             state.update(result=response.get("genarate"))
         except Exception as e:
             logging.exception(e)
         return state
-

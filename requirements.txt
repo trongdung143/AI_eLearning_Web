@@ -16,3 +16,4 @@ langsmith
 tavily-python
 chromadb
 faiss-cpu
+langchain-ollama

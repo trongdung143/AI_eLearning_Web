@@ -24,7 +24,9 @@ class WriterAgent(BaseAgent):
         try:
             content = state.get("result")
             question = state.get("task")
-            response = await self._chain.ainvoke({"question": question, "content": content})
+            response = await self._chain.ainvoke(
+                {"question": question, "content": content}
+            )
             result = response.content
             state.update(result=result, messages=[response])
         except Exception as e:
