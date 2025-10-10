@@ -1,5 +1,5 @@
 from src.agents.qa.qa import QaAgent
-from src.agents.writer.writer import  WriterAgent
+from src.agents.writer.writer import WriterAgent
 from langgraph.graph import StateGraph
 from langchain_core.messages import HumanMessage
 from src.agents.state import State
@@ -15,10 +15,12 @@ def route(state: State) -> str:
         return type_request
     return "writer"
 
+
 def start(state: State) -> State:
     return state
 
-qa= QaAgent()
+
+qa = QaAgent()
 lecturer = LecturerAgent()
 writer = WriterAgent()
 
@@ -38,14 +40,13 @@ workflow.add_conditional_edges(
         "qa": "qa",
         "lecturer": "lecturer",
         # "assessment": "assessment",
-    }
+    },
 )
 #
 # for agent in VALID_AGENTS:
 #     workflow.add_edge(agent, "writer")
 workflow.add_edge("qa", "writer")
-workflow.add_edge("lecturer", "writer")
+workflow.add_edge("lecturer", "__end__")
 workflow.set_finish_point("writer")
 
 graph = workflow.compile(checkpointer=MemorySaver())
-

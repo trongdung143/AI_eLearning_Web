@@ -12,10 +12,11 @@ async def qa_stream(
     type_request: str = Form(""),
     course_id: str = Form(""),
     pdf_file: UploadFile = File(...),
-) -> tuple[str, dict[str, str]]:
+) -> dict:
 
-    lesson_id = str(uuid.uuid4())
-    temp_path = f"{TEMP_DIR}/{course_id}/{lesson_id}.pdf"
+    lesson_id = str(uuid.uuid4()).strip()
+    temp_path = f"{TEMP_DIR}/{lesson_id}.pdf"
+
     with open(temp_path, "wb") as f:
         content = await pdf_file.read()
         f.write(content)
@@ -34,9 +35,15 @@ async def qa_stream(
         "lecture": None,
         "quiz": None,
         "document_path": temp_path,
+        "lesson_id": lesson_id,
     }
 
     response = await graph.ainvoke(input=input_state, config=config)
 
     lecture = response.get("lecture")
-    return lesson_id, lecture
+    content_list = []
+
+    for url_pdf, page_text in lecture.items():
+        content_list.append({"url_pdf": url_pdf, "content": page_text})
+
+    return {"lesson_id": lesson_id, "content": content_list}

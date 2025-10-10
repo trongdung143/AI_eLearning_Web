@@ -8,3 +8,4 @@ class State(MessagesState):
     lecture: dict[str, str] | None
     quiz: dict[str, list[str]] | None
     document_path: str | None
+    lesson_id: str | None
