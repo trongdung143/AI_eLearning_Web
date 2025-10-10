@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: multi-agent-api
+    name: AI_eLearning_Web
     env: python
     plan: free
     pythonVersion: 3.12
@@ -9,29 +9,19 @@ services:
     envVars:
       - key: GOOGLE_API_KEY
         sync: false
-      - key: TOGETHER_API_KEY
+      - key: LANGSMITH_TRACING
         sync: false
-      - key: OPENAI_API_KEY
+      - key: LANGSMITH_ENDPOINT
         sync: false
-      - key: ANTHROPIC_API_KEY
+      - key: LANGSMITH_API_KEY
         sync: false
-      - key: CLIENT_ID
+      - key: LANGSMITH_PROJECT
         sync: false
-      - key: CLIENT_SECRET
+      - key: TAVILY_API_KEY
         sync: false
-      - key: REDIRECT_URI
+      - key: CLOUDINARY_API_NAME
         sync: false
-      - key: TOKEN_URL
+      - key: CLOUDINARY_API_KEY
         sync: false
-      - key: USERINFO_URL
-        sync: false
-      - key: DB_USER
-        sync: false
-      - key: DB_PASSWORD
-        sync: false
-      - key: DB_HOST
-        sync: false
-      - key: DB_PORT
-        sync: false
-      - key: DB_NAME
+      - key: CLOUDINARY_API_SECRET
         sync: false
