@@ -99,7 +99,7 @@ class Reviewer(BaseAgent):
 
     async def process(self, state: LecturerState) -> LecturerState:
         try:
-            lecturer = state.get("lecturer")
+            lecturer = state.get("lecturer", [])
             document = state.get("document")
             txt = self._format_document(document)
             lecture = state.get("lecture")
@@ -160,10 +160,10 @@ class LecturerSegmentAgent(BaseAgent):
 
     async def process(self, state: LecturerState) -> LecturerState:
         try:
-            lecturer_segment = state.get("lecturer_segment")
+            lecturer_segment = state.get("lecturer_segment", [])
             lecture = state.get("lecture")
             prev_lecture = state.get("prev_lecture")
-            lecturer_segment = state.get("lecturer_segment")
+            lecturer_segment = state.get("lecturer_segment", [])
             response = await self._chain.ainvoke(
                 {"previous_lecture": prev_lecture, "lecture": lecture}
             )
@@ -203,7 +203,7 @@ class LecturerAgent(BaseAgent):
         return "__end__"
 
     def _receive_document(self, state: LecturerState) -> LecturerState:
-        documents = state.get("documents")
+        documents = state.get("documents", [])
         index = state.get("index")
         if index == 0:
             self._chain = prompt_lecturer_first | self._model
@@ -225,7 +225,7 @@ class LecturerAgent(BaseAgent):
         lesson_id = state.get("lesson_id")
         file_base = state.get("slide_path")
         file_path = f"{file_base}/slide_{index}.pdf"
-        url_slide = state.get("url_slide")
+        url_slide = state.get("url_slide", [])
 
         upload_result = cloudinary.uploader.upload(
             file_path,

@@ -101,7 +101,8 @@ prompt_reviewer = ChatPromptTemplate.from_messages(
         5. Đảm bảo rằng lời giảng chỉ gồm **văn bản thuần túy**, không có định dạng markdown, gạch đầu dòng hoặc ký hiệu đặc biệt.
 
         Hãy phản hồi theo cấu trúc sau:
-        binary_score: "yes" hoặc "no"
+        "binary_score": "yes" nếu lời giảng đạt tất cả tiêu chí ở trên, "no" nếu vi phạm bất kỳ tiêu chí nào.
+
         feedback: Nhận xét ngắn gọn, có tính xây dựng, giải thích lý do. Nêu rõ:
             - Lời giảng có trung thực với tài liệu không.
             - Có bỏ sót hoặc thêm thắt nội dung không.

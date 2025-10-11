@@ -49,4 +49,6 @@ workflow.add_edge("qa", "writer")
 workflow.add_edge("lecturer", "__end__")
 workflow.set_finish_point("writer")
 
-graph = workflow.compile(checkpointer=MemorySaver())
+graph = workflow.compile()  # checkpointer=MemorySaver())
+qa_graph = qa.get_subgraph()
+lecturer_graph = lecturer.get_subgraph()

@@ -24,6 +24,7 @@ from src.config.setup import GOOGLE_API_KEY, DATA_DIR
 
 
 class QaState(dict):
+    feedback: str
     question: str
     genarate: str
     next_node: str
@@ -33,12 +34,14 @@ class QaState(dict):
 
 
 class SupervisorResponseFormat(BaseModel):
-    # content: str = Field(description="Feedback")
+    feedback: str = Field(
+        description="a short but clear explanation or suggestion for improvement"
+    )
     binary_score: str = Field(description="yes or no")
 
 
 class ReviewerResponseFormat(BaseModel):
-    # content: str = Field(description="NAH")
+
     binary_score: str = Field(description="yes or no")
 
 
@@ -63,8 +66,14 @@ class Supervisor(BaseAgent):
                 {"question": question, "genarate": genarate}
             )
             binary_score = response.binary_score
-            next_node = "__end__" if binary_score == "yes" else "genarate"
-            state.update(next_node=next_node)
+            feedback = ""
+            next_node = None
+            if binary_score == "no":
+                next_node = "__end__"
+            else:
+                next_node = "genarate"
+                feedback = response.feedback
+            state.update(next_node=next_node, feedback=feedback)
         except Exception as e:
             logging.exception(e)
         return state
@@ -254,8 +263,9 @@ class QaAgent(BaseAgent):
         try:
             question = state.get("question")
             full_txt = self._format_document(state)
+            feedback = state.get("feedback")
             response = await self._chain.ainvoke(
-                {"context": full_txt, "question": question}
+                {"context": full_txt, "question": question, "feedback": feedback}
             )
             genarate = response.content
             state.update(genarate=genarate)
@@ -272,6 +282,7 @@ class QaAgent(BaseAgent):
             vectorstore_path = f"{DATA_DIR}/vectorstore/{lesson_id}"
 
             input_state = {
+                "feedback": "",
                 "question": question,
                 "genarate": "",
                 "next_node": "",
