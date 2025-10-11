@@ -1,10 +1,11 @@
 from fastapi import APIRouter, UploadFile, File, Form
 import uuid
 from src.agents.workflow import graph
+from src.config.setup import DATA_DIR
 
 router = APIRouter()
 
-TEMP_DIR = "src/data/pdf"
+PDF_DIR = f"{DATA_DIR}/pdf"
 
 
 @router.post("/lecturer")
@@ -15,7 +16,7 @@ async def qa_stream(
 ) -> dict:
 
     lesson_id = str(uuid.uuid4()).strip()
-    temp_path = f"{TEMP_DIR}/{lesson_id}.pdf"
+    temp_path = f"{PDF_DIR}/{lesson_id}.pdf"
 
     with open(temp_path, "wb") as f:
         content = await pdf_file.read()
@@ -41,9 +42,13 @@ async def qa_stream(
     response = await graph.ainvoke(input=input_state, config=config)
 
     lecture = response.get("lecture")
-    content_list = []
-
-    for url_pdf, page_text in lecture.items():
-        content_list.append({"url_pdf": url_pdf, "content": page_text})
+    content_list = [
+        {
+            "url_pdf": url_pdf,
+            "lecturer": lecturer,
+            "lecturer_segment": lecturer_segment,
+        }
+        for url_pdf, (lecturer, lecturer_segment) in lecture.items()
+    ]
 
     return {"lesson_id": lesson_id, "content": content_list}

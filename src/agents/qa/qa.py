@@ -20,7 +20,7 @@ from src.agents.qa.prompt import (
     prompt_question_rewrite,
 )
 from src.agents.state import State
-from src.config.setup import GOOGLE_API_KEY
+from src.config.setup import GOOGLE_API_KEY, DATA_DIR
 
 
 class QaState(dict):
@@ -217,7 +217,6 @@ class QaAgent(BaseAgent):
     async def _document_to_vector(self, state: QaState) -> QaState:
         document_path = state.get("document_path")
         vectorstore_path = state.get("vectorstore_path")
-        os.makedirs(vectorstore_path, exist_ok=True)
         if not os.path.exists(vectorstore_path):
             if os.path.exists(document_path):
                 try:
@@ -268,10 +267,9 @@ class QaAgent(BaseAgent):
         try:
             question = state.get("task")
             lesson_id = config.get("configurable").get("lesson_id")
-            save_dir = "src/data"
 
-            document_path = f"{save_dir}/pdf/{lesson_id}.pdf"
-            vectorstore_path = f"{save_dir}/vectorstore/{lesson_id}"
+            document_path = f"{DATA_DIR}/pdf/{lesson_id}.pdf"
+            vectorstore_path = f"{DATA_DIR}/vectorstore/{lesson_id}"
 
             input_state = {
                 "question": question,

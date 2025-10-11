@@ -1,4 +1,5 @@
 from typing import Sequence
+import logging
 
 from langchain_core.tools.base import BaseTool
 from langsmith import traceable
@@ -30,5 +31,5 @@ class WriterAgent(BaseAgent):
             result = response.content
             state.update(result=result, messages=[response])
         except Exception as e:
-            print("ERROR ", self._agent_name)
+            logging.exception(e)
         return state
