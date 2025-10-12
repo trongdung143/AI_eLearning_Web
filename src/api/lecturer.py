@@ -2,6 +2,7 @@ from fastapi import APIRouter, UploadFile, File, Form
 import uuid
 from src.agents.workflow import graph
 from src.config.setup import DATA_DIR
+import os
 
 router = APIRouter()
 
@@ -17,6 +18,9 @@ async def qa_stream(
 
     lesson_id = str(uuid.uuid4()).strip()
     temp_path = f"{PDF_DIR}/{lesson_id}.pdf"
+
+    if not os.path.exists(PDF_DIR):
+        os.makedirs(PDF_DIR)
 
     with open(temp_path, "wb") as f:
         content = await pdf_file.read()

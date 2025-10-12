@@ -9,6 +9,9 @@ from langchain_core.runnables.config import RunnableConfig
 from langchain_core.documents import Document
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.tools.base import BaseTool, Field
+from langchain_community.vectorstores import FAISS
+from langchain_google_genai.embeddings import GoogleGenerativeAIEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langsmith import traceable
 from pydantic import BaseModel
 
@@ -27,6 +30,7 @@ from src.config.setup import (
     CLOUDINARY_API_NAME,
     CLOUDINARY_API_SECRET,
     DATA_DIR,
+    GOOGLE_API_KEY,
 )
 
 import cloudinary
@@ -43,6 +47,7 @@ cloudinary.config(
 class LecturerState(dict):
     next_node: str = ""
     document_path: str
+    vectorstore_path: str
     slide_dir: str = ""
     documents: list[Document] = Field(default_factory=list)
     lectures: list[str] = Field(default_factory=list)
@@ -194,6 +199,7 @@ class LecturerAgent(BaseAgent):
         "receive_document",
         "upload_document",
         "lectures_segments",
+        "document_to_vector",
     ]
 
     def __init__(self, tools: Sequence[BaseTool] | None = None) -> None:
@@ -204,6 +210,11 @@ class LecturerAgent(BaseAgent):
         )
 
         self._reviewer = Reviewer()
+
+        self._embedding = GoogleGenerativeAIEmbeddings(
+            model="models/gemini-embedding-001",
+            google_api_key=GOOGLE_API_KEY,
+        )
 
         self._lecturer_segment = LecturerSegmentAgent()
 
@@ -224,7 +235,7 @@ class LecturerAgent(BaseAgent):
             self._chain = prompt_lecturer_continue | self._model
 
         if page_index >= len(documents):
-            next_node = "__end__"
+            next_node = "document_to_vector"
             state.update(next_node=next_node)
         else:
             next_node = "generate_lecture"
@@ -257,6 +268,35 @@ class LecturerAgent(BaseAgent):
         state.update(slide_urls=slide_urls)
         return state
 
+    async def _document_to_vector(self, state: LecturerState) -> LecturerState:
+        document_path = state.get("document_path")
+        vectorstore_path = state.get("vectorstore_path")
+        base_path = "src/data/vectorstore"
+
+        if not os.path.exists(vectorstore_path):
+            if not os.path.exists(base_path):
+                os.makedirs(base_path)
+            if os.path.exists(document_path):
+                try:
+                    loader = PyPDFLoader(document_path)
+                    documents = loader.load()
+                    text_splitter = (
+                        RecursiveCharacterTextSplitter.from_tiktoken_encoder(
+                            chunk_size=500, chunk_overlap=100
+                        )
+                    )
+                    documents_splits = text_splitter.split_documents(documents)
+
+                    vectorstore = await FAISS.afrom_documents(
+                        documents=documents_splits,
+                        embedding=self._embedding,
+                    )
+
+                    vectorstore.save_local(vectorstore_path)
+                except Exception as e:
+                    logging.exception(e)
+        return state
+
     def _set_subgraph(self):
         self._sub_graph.add_node("read_documents", self._read_documents)
         self._sub_graph.add_node("receive_document", self._receive_document)
@@ -265,6 +305,7 @@ class LecturerAgent(BaseAgent):
         self._sub_graph.add_node("split_document", self._split_document)
         self._sub_graph.add_node("upload_document", self._upload_document)
         self._sub_graph.add_node("lectures_segments", self._lecturer_segment.process)
+        self._sub_graph.add_node("document_to_vector", self._document_to_vector)
 
         self._sub_graph.set_entry_point("split_document")
         self._sub_graph.add_edge("split_document", "read_documents")
@@ -274,7 +315,7 @@ class LecturerAgent(BaseAgent):
             self._route,
             {
                 "generate_lecture": "generate_lecture",
-                "__end__": "__end__",
+                "document_to_vector": "document_to_vector",
             },
         )
 
@@ -290,6 +331,7 @@ class LecturerAgent(BaseAgent):
         )
         self._sub_graph.add_edge("lectures_segments", "upload_document")
         self._sub_graph.add_edge("upload_document", "receive_document")
+        self._sub_graph.set_finish_point("document_to_vector")
 
     def _format_document(self, current_page: Document) -> str:
         return current_page.page_content
@@ -302,7 +344,7 @@ class LecturerAgent(BaseAgent):
         total_pages = len(reader.pages)
 
         if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
+            os.makedirs(output_dir, exist_ok=True)
 
         for i in range(total_pages):
             writer = PdfWriter()
@@ -359,13 +401,18 @@ class LecturerAgent(BaseAgent):
         try:
             document_path = state.get("document_path")
             lesson_id = state.get("lesson_id")
+            vectorstore_path = f"{DATA_DIR}/vectorstore/{lesson_id}"
+
             input_state = {
                 "document_path": document_path,
+                "vectorstore_path": vectorstore_path,
                 "page_index": 0,
                 "lesson_id": lesson_id,
             }
             sub_graph = self.get_subgraph()
-            response = await sub_graph.ainvoke(input=input_state)
+            response = await sub_graph.ainvoke(
+                input=input_state, config={"recursion_limit": 50}
+            )
             lectures = response.get("lectures")
             lectures_segments = response.get("lectures_segments")
             slide_urls = response.get("slide_urls")

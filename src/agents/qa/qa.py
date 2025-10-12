@@ -29,7 +29,6 @@ class QaState(dict):
     question: str
     generate: str = ""
     next_node: str = ""
-    document_path: str
     vectorstore_path: str
     documents: list[Document] = Field(default_factory=list)
     bs_sp: str = ""
@@ -188,16 +187,13 @@ class QaAgent(BaseAgent):
 
     def _set_subgraph(self):
 
-        self._sub_graph.add_node("docs_to_vec", self._document_to_vector)
         self._sub_graph.add_node("retrieve", self._retrieve)
         self._sub_graph.add_node("reviewer", self._reviewer.process)
         self._sub_graph.add_node("re_question", self._question_rewrite.process)
         self._sub_graph.add_node("supervisor", self._supervisor.process)
         self._sub_graph.add_node("generate", self._genarate)
 
-        self._sub_graph.set_entry_point("docs_to_vec")
-
-        self._sub_graph.add_edge("docs_to_vec", "retrieve")
+        self._sub_graph.set_entry_point("retrieve")
         self._sub_graph.add_edge("retrieve", "reviewer")
 
         self._sub_graph.add_conditional_edges(
@@ -238,31 +234,6 @@ class QaAgent(BaseAgent):
                 logging.exception(e)
         return None
 
-    async def _document_to_vector(self, state: QaState) -> QaState:
-        document_path = state.get("document_path")
-        vectorstore_path = state.get("vectorstore_path")
-        if not os.path.exists(vectorstore_path):
-            if os.path.exists(document_path):
-                try:
-                    loader = PyPDFLoader(document_path)
-                    documents = loader.load()
-                    text_splitter = (
-                        RecursiveCharacterTextSplitter.from_tiktoken_encoder(
-                            chunk_size=500, chunk_overlap=100
-                        )
-                    )
-                    documents_splits = text_splitter.split_documents(documents)
-
-                    vectorstore = await FAISS.afrom_documents(
-                        documents=documents_splits,
-                        embedding=self._embedding,
-                    )
-
-                    vectorstore.save_local(vectorstore_path)
-                except Exception as e:
-                    logging.exception(e)
-        return state
-
     async def _retrieve(self, state: QaState) -> QaState:
         try:
 
@@ -293,12 +264,10 @@ class QaAgent(BaseAgent):
             question = state.get("task")
             lesson_id = config.get("configurable").get("lesson_id")
 
-            document_path = f"{DATA_DIR}/pdf/{lesson_id}.pdf"
             vectorstore_path = f"{DATA_DIR}/vectorstore/{lesson_id}"
 
             input_state = {
                 "question": question,
-                "document_path": document_path,
                 "vectorstore_path": vectorstore_path,
             }
 
