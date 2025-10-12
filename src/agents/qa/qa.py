@@ -2,16 +2,14 @@ import logging
 import os
 from typing import Sequence
 
-from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from langchain_core.runnables.config import RunnableConfig
 from langchain_core.tools.base import BaseTool, Field
 from langchain_core.vectorstores.base import VectorStoreRetriever
 from langchain_google_genai.embeddings import GoogleGenerativeAIEmbeddings
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from pydantic import BaseModel
 
+from pydantic import BaseModel
 from src.agents.base import BaseAgent
 from src.agents.qa.prompt import (
     prompt_qa,
@@ -21,6 +19,8 @@ from src.agents.qa.prompt import (
 )
 from src.agents.state import State
 from src.config.setup import GOOGLE_API_KEY, DATA_DIR
+
+logger = logging.getLogger(__name__)
 
 
 class QaState(dict):
@@ -51,10 +51,7 @@ class ReviewerResponseFormat(BaseModel):
 
 class Supervisor(BaseAgent):
     def __init__(self):
-        super().__init__(
-            agent_name="supervisor",
-            state=QaState,
-        )
+        super().__init__(agent_name="supervisor", state=QaState)
 
         self._prompt = prompt_supervisor
 
@@ -66,30 +63,32 @@ class Supervisor(BaseAgent):
         try:
             generate = state.get("generate")
             question = state.get("question")
+
             response = await self._chain.ainvoke(
                 {"question": question, "generate": generate}
             )
+
             binary_score = response.binary_score
             feedback = ""
             next_node = ""
+
             if binary_score == "no":
                 next_node = "generate"
                 feedback = response.feedback
-
             else:
                 next_node = "__end__"
-            state.update(next_node=next_node, feedback_sp=feedback, bs_sp=binary_score)
+
         except Exception as e:
-            logging.exception(e)
+            logger.exception(e)
+        finally:
+            state.update(next_node=next_node, feedback_sp=feedback, bs_sp=binary_score)
+            logger.info("[Supervisor] process executed")
         return state
 
 
 class Reviewer(BaseAgent):
     def __init__(self):
-        super().__init__(
-            agent_name="reviewer",
-            state=QaState,
-        )
+        super().__init__(agent_name="reviewer", state=QaState)
 
         self._prompt = prompt_reviewer
 
@@ -101,30 +100,34 @@ class Reviewer(BaseAgent):
         try:
             documents = state.get("documents")
             question = state.get("question")
-            doc_txt = documents[0].page_content
+
+            doc_txt = documents[0].page_content if documents else ""
+
             response = await self._chain.ainvoke(
                 {"question": question, "document": doc_txt}
             )
+
             binary_score = response.binary_score
             feedback = ""
             next_node = ""
+
             if binary_score == "no":
                 feedback = response.feedback
                 next_node = "re_question"
             else:
                 next_node = "generate"
-            state.update(next_node=next_node, bs_rv=binary_score, feedback_rv=feedback)
+
         except Exception as e:
-            logging.exception(e)
+            logger.exception(e)
+        finally:
+            state.update(next_node=next_node, bs_rv=binary_score, feedback_rv=feedback)
+            logger.info("[Reviewer] process executed")
         return state
 
 
 class QuestionReWrite(BaseAgent):
     def __init__(self):
-        super().__init__(
-            agent_name="question_rewrite",
-            state=QaState,
-        )
+        super().__init__(agent_name="question_rewrite", state=QaState)
 
         self._prompt = prompt_question_rewrite
 
@@ -136,12 +139,16 @@ class QuestionReWrite(BaseAgent):
         try:
             question = state.get("question")
             feedback_rv = state.get("feedback_rv")
+
             response = await self._chain.ainvoke(
                 {"question": question, "feedback": feedback_rv}
             )
-            state.update(question=response.content)
+
         except Exception as e:
-            logging.exception(e)
+            logger.exception(e)
+        finally:
+            state.update(question=response.content)
+            logger.info("[QuestionReWrite] process executed")
         return state
 
 
@@ -149,11 +156,7 @@ class QaAgent(BaseAgent):
     VALID_NODES = ["re_question", "generate", "__end__"]
 
     def __init__(self, tools: Sequence[BaseTool] | None = None) -> None:
-        super().__init__(
-            agent_name="qa",
-            tools=tools,
-            state=QaState,
-        )
+        super().__init__(agent_name="qa", tools=tools, state=QaState)
 
         self._prompt = prompt_qa
 
@@ -166,8 +169,7 @@ class QaAgent(BaseAgent):
         self._question_rewrite = QuestionReWrite()
 
         self._embedding = GoogleGenerativeAIEmbeddings(
-            model="models/gemini-embedding-001",
-            google_api_key=GOOGLE_API_KEY,
+            model="models/gemini-embedding-001", google_api_key=GOOGLE_API_KEY
         )
 
         self._set_subgraph()
@@ -176,7 +178,7 @@ class QaAgent(BaseAgent):
         documents = state.get("documents")
         full_txt = ""
         for doc in documents:
-            full_txt = full_txt + doc.page_content + "\n\n"
+            full_txt += doc.page_content + "\n\n"
         return full_txt
 
     def _route(self, state: QaState) -> str:
@@ -186,41 +188,39 @@ class QaAgent(BaseAgent):
         return "__end__"
 
     def _set_subgraph(self):
+        try:
+            self._sub_graph.add_node("retrieve", self._retrieve)
+            self._sub_graph.add_node("reviewer", self._reviewer.process)
+            self._sub_graph.add_node("re_question", self._question_rewrite.process)
+            self._sub_graph.add_node("supervisor", self._supervisor.process)
+            self._sub_graph.add_node("generate", self._genarate)
 
-        self._sub_graph.add_node("retrieve", self._retrieve)
-        self._sub_graph.add_node("reviewer", self._reviewer.process)
-        self._sub_graph.add_node("re_question", self._question_rewrite.process)
-        self._sub_graph.add_node("supervisor", self._supervisor.process)
-        self._sub_graph.add_node("generate", self._genarate)
+            self._sub_graph.set_entry_point("retrieve")
+            self._sub_graph.add_edge("retrieve", "reviewer")
 
-        self._sub_graph.set_entry_point("retrieve")
-        self._sub_graph.add_edge("retrieve", "reviewer")
+            self._sub_graph.add_conditional_edges(
+                "reviewer",
+                self._route,
+                {"re_question": "re_question", "generate": "generate"},
+            )
 
-        self._sub_graph.add_conditional_edges(
-            "reviewer",
-            self._route,
-            {
-                "re_question": "re_question",
-                "generate": "generate",
-            },
-        )
+            self._sub_graph.add_edge("re_question", "retrieve")
+            self._sub_graph.add_edge("generate", "supervisor")
 
-        self._sub_graph.add_edge("re_question", "retrieve")
-        self._sub_graph.add_edge("generate", "supervisor")
-
-        self._sub_graph.add_conditional_edges(
-            "supervisor",
-            self._route,
-            {
-                "__end__": "__end__",
-                "generate": "generate",
-            },
-        )
+            self._sub_graph.add_conditional_edges(
+                "supervisor",
+                self._route,
+                {"__end__": "__end__", "generate": "generate"},
+            )
+        except Exception as e:
+            logger.exception(e)
+        finally:
+            logger.info("[QaAgent] _set_subgraph executed")
 
     def _load_retriever(self, state: QaState) -> VectorStoreRetriever:
-        vectorstore_path = state.get("vectorstore_path")
-        if os.path.exists(vectorstore_path):
-            try:
+        try:
+            vectorstore_path = state.get("vectorstore_path")
+            if os.path.exists(vectorstore_path):
                 vectorstore = FAISS.load_local(
                     folder_path=vectorstore_path,
                     embeddings=self._embedding,
@@ -230,19 +230,25 @@ class QaAgent(BaseAgent):
                     search_type="similarity", search_kwargs={"k": 4}
                 )
                 return retriever
-            except Exception as e:
-                logging.exception(e)
+        except Exception as e:
+            logger.exception(e)
+        finally:
+            logger.info("[QaAgent] _load_retriever executed")
         return None
 
     async def _retrieve(self, state: QaState) -> QaState:
         try:
-
             question = state.get("question")
             retriever = self._load_retriever(state)
-            response = await retriever.ainvoke(question)
-            state.update(documents=response)
+
+            if retriever:
+                response = await retriever.ainvoke(question)
+
         except Exception as e:
-            logging.exception(e)
+            logger.exception(e)
+        finally:
+            state.update(documents=response)
+            logger.info("[QaAgent] _retrieve executed")
         return state
 
     async def _genarate(self, state: QaState) -> QaState:
@@ -250,30 +256,34 @@ class QaAgent(BaseAgent):
             question = state.get("question")
             full_txt = self._format_document(state)
             feedback_sp = state.get("feedback_sp")
+
+            print(full_txt)
             response = await self._chain.ainvoke(
                 {"context": full_txt, "question": question, "feedback": feedback_sp}
             )
+
             generate = response.content
-            state.update(generate=generate)
+
         except Exception as e:
-            logging.exception(e)
+            logger.exception(e)
+        finally:
+            state.update(generate=generate)
+            logger.info("[QaAgent] _genarate executed")
         return state
 
     async def process(self, state: State, config: RunnableConfig) -> State:
         try:
             question = state.get("task")
             lesson_id = config.get("configurable").get("lesson_id")
-
             vectorstore_path = f"{DATA_DIR}/vectorstore/{lesson_id}"
-
-            input_state = {
-                "question": question,
-                "vectorstore_path": vectorstore_path,
-            }
-
+            input_state = {"question": question, "vectorstore_path": vectorstore_path}
             sub_graph = self.get_subgraph()
+
             response = await sub_graph.ainvoke(input=input_state)
-            state.update(result=response.get("generate"))
+
         except Exception as e:
-            logging.exception(e)
+            logger.exception(e)
+        finally:
+            state.update(result=response.get("generate"))
+            logger.info("[QaAgent] process executed")
         return state

@@ -43,6 +43,8 @@ cloudinary.config(
     secure=True,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class LecturerState(dict):
     next_node: str = ""
@@ -106,27 +108,37 @@ class Reviewer(BaseAgent):
         try:
             lectures = state.get("lectures", [])
             current_page = state.get("current_page")
+            current_lecture = state.get("current_lecture", "")
+            prev_lecture = state.get("prev_lecture", "")
+
+            next_node = "lectures_segments"
+            feedback = ""
             txt = self._format_document(current_page)
-            current_lecture = state.get("current_lecture")
-            prev_lecture = state.get("prev_lecture")
 
             response = await self._chain.ainvoke(
                 {"current_page": txt, "current_lecture": current_lecture}
             )
 
-            binary_score = response.binary_score
-            feedback = f"Lời giảng bạn vừa viết:\n{current_lecture} \n\n feedback:\n{response.feedback}"
-            next_node = None
+            binary_score = getattr(response, "binary_score", "no")
+            feedback_text = getattr(response, "feedback", "")
+            logger.info(f"[LecturerAgent] Review result: {binary_score}")
 
             if binary_score == "no":
                 next_node = "generate_lecture"
+                feedback = f"Lời giảng bạn vừa viết:\n{current_lecture}\n\nFeedback:\n{feedback_text}"
             else:
-                feedback = ""
                 next_node = "lectures_segments"
+                feedback = ""
                 current_lecture = self._clean_txt(current_lecture)
                 prev_lecture = current_lecture
                 lectures.append(current_lecture)
 
+        except Exception as e:
+            logger.exception(
+                f"[LecturerAgent] Error while processing page {current_page}: {e}"
+            )
+
+        finally:
             state.update(
                 next_node=next_node,
                 feedback=feedback,
@@ -135,8 +147,6 @@ class Reviewer(BaseAgent):
                 current_lecture=current_lecture,
             )
 
-        except Exception as e:
-            logging.exception(e)
         return state
 
 
@@ -169,27 +179,34 @@ class LecturerSegmentAgent(BaseAgent):
         return txt
 
     async def process(self, state: LecturerState) -> LecturerState:
+
         try:
             lectures_segments = state.get("lectures_segments", [])
-            current_lecture = state.get("current_lecture")
-            prev_lecture = state.get("prev_lecture")
-            lectures_segments = state.get("lectures_segments", [])
-
+            current_lecture = state.get("current_lecture", "")
+            prev_lecture = state.get("prev_lecture", "")
+            clean_lecture_segment = []
             response = await self._chain.ainvoke(
                 {"previous_lecture": prev_lecture, "current_lecture": current_lecture}
             )
 
-            lecture_segment = json.loads(response.content)
+            try:
+                lecture_segment = json.loads(response.content)
+                clean_lecture_segment = [
+                    self._clean_txt(seg).strip()
+                    for seg in lecture_segment
+                    if seg.strip()
+                ]
+                logger.info("[LecturerAgent] Lecture segment parsed successfully")
+            except Exception as e:
+                logger.exception(f"[LecturerAgent] Invalid JSON response: {e}")
 
-            clean_lecture_segment = [
-                self._clean_txt(seg).strip() for seg in lecture_segment
-            ]
-
-            lectures_segments.append(clean_lecture_segment)
-
-            state.update(lectures_segments=lectures_segments)
         except Exception as e:
-            logging.exception(e)
+            logger.exception(f"[LecturerAgent] Error processing lecture segment: {e}")
+
+        finally:
+            if clean_lecture_segment:
+                lectures_segments.append(clean_lecture_segment)
+            state.update(lectures_segments=lectures_segments)
         return state
 
 
@@ -227,57 +244,71 @@ class LecturerAgent(BaseAgent):
         return "__end__"
 
     def _receive_document(self, state: LecturerState) -> LecturerState:
-        documents = state.get("documents", [])
-        page_index = state.get("page_index")
-        if page_index == 0:
-            self._chain = prompt_lecturer_first | self._model
-        else:
-            self._chain = prompt_lecturer_continue | self._model
-
-        if page_index >= len(documents):
-            next_node = "document_to_vector"
-            state.update(next_node=next_node)
-        else:
-            next_node = "generate_lecture"
+        try:
+            documents = state.get("documents", [])
             page_index = state.get("page_index")
-            current_page = documents[page_index]
-            state.update(
-                current_page=current_page,
-                page_index=page_index + 1,
-                next_node=next_node,
-            )
+            if page_index == 0:
+                self._chain = prompt_lecturer_first | self._model
+            else:
+                self._chain = prompt_lecturer_continue | self._model
+
+            if page_index >= len(documents):
+                next_node = "document_to_vector"
+
+            else:
+                next_node = "generate_lecture"
+                current_page = documents[page_index]
+
+        except Exception as e:
+            logger.exception(e)
+        finally:
+            if page_index >= len(documents):
+                state.update(next_node=next_node)
+            else:
+                state.update(
+                    current_page=current_page,
+                    page_index=page_index + 1,
+                    next_node=next_node,
+                )
+            logger.info("[LecturerAgent] _receive_document executed")
         return state
 
     def _upload_document(self, state: LecturerState) -> LecturerState:
-        page_index = state.get("page_index")
-        lesson_id = state.get("lesson_id")
-        file_base = state.get("slide_dir")
-        file_path = f"{file_base}/slide_{page_index}.pdf"
-        slide_urls = state.get("slide_urls", [])
+        try:
+            page_index = state.get("page_index")
+            lesson_id = state.get("lesson_id")
+            file_base = state.get("slide_dir")
+            file_path = f"{file_base}/slide_{page_index}.pdf"
+            slide_urls = state.get("slide_urls", [])
 
-        upload_result = cloudinary.uploader.upload(
-            file_path,
-            resource_type="raw",
-            public_id=f"slide_{page_index}",
-            folder=lesson_id,
-            overwrite=True,
-        )
+            upload_result = cloudinary.uploader.upload(
+                file_path,
+                resource_type="raw",
+                public_id=f"slide_{page_index}",
+                folder=lesson_id,
+                overwrite=True,
+            )
 
-        secure_url = upload_result.get("secure_url")
-        slide_urls.append(secure_url)
-        state.update(slide_urls=slide_urls)
+            secure_url = upload_result.get("secure_url")
+            slide_urls.append(secure_url)
+
+        except Exception as e:
+            logger.exception(e)
+        finally:
+            state.update(slide_urls=slide_urls)
+            logger.info("[LecturerAgent] _upload_document executed")
         return state
 
     async def _document_to_vector(self, state: LecturerState) -> LecturerState:
-        document_path = state.get("document_path")
-        vectorstore_path = state.get("vectorstore_path")
-        base_path = "src/data/vectorstore"
+        try:
+            document_path = state.get("document_path")
+            vectorstore_path = state.get("vectorstore_path")
+            base_path = "src/data/vectorstore"
 
-        if not os.path.exists(vectorstore_path):
-            if not os.path.exists(base_path):
-                os.makedirs(base_path)
-            if os.path.exists(document_path):
-                try:
+            if not os.path.exists(vectorstore_path):
+                if not os.path.exists(base_path):
+                    os.makedirs(base_path)
+                if os.path.exists(document_path):
                     loader = PyPDFLoader(document_path)
                     documents = loader.load()
                     text_splitter = (
@@ -291,82 +322,92 @@ class LecturerAgent(BaseAgent):
                         documents=documents_splits,
                         embedding=self._embedding,
                     )
-
                     vectorstore.save_local(vectorstore_path)
-                except Exception as e:
-                    logging.exception(e)
+        except Exception as e:
+            logger.exception(e)
+        finally:
+            logger.info("[LecturerAgent] _document_to_vector executed")
         return state
 
     def _set_subgraph(self):
-        self._sub_graph.add_node("read_documents", self._read_documents)
-        self._sub_graph.add_node("receive_document", self._receive_document)
-        self._sub_graph.add_node("generate_lecture", self._genarate_lecture)
-        self._sub_graph.add_node("reviewer", self._reviewer.process)
-        self._sub_graph.add_node("split_document", self._split_document)
-        self._sub_graph.add_node("upload_document", self._upload_document)
-        self._sub_graph.add_node("lectures_segments", self._lecturer_segment.process)
-        self._sub_graph.add_node("document_to_vector", self._document_to_vector)
+        try:
+            self._sub_graph.add_node("read_documents", self._read_documents)
+            self._sub_graph.add_node("receive_document", self._receive_document)
+            self._sub_graph.add_node("generate_lecture", self._genarate_lecture)
+            self._sub_graph.add_node("reviewer", self._reviewer.process)
+            self._sub_graph.add_node("split_document", self._split_document)
+            self._sub_graph.add_node("upload_document", self._upload_document)
+            self._sub_graph.add_node(
+                "lectures_segments", self._lecturer_segment.process
+            )
+            self._sub_graph.add_node("document_to_vector", self._document_to_vector)
 
-        self._sub_graph.set_entry_point("split_document")
-        self._sub_graph.add_edge("split_document", "read_documents")
-        self._sub_graph.add_edge("read_documents", "receive_document")
-        self._sub_graph.add_conditional_edges(
-            "receive_document",
-            self._route,
-            {
-                "generate_lecture": "generate_lecture",
-                "document_to_vector": "document_to_vector",
-            },
-        )
+            self._sub_graph.set_entry_point("split_document")
+            self._sub_graph.add_edge("split_document", "read_documents")
+            self._sub_graph.add_edge("read_documents", "receive_document")
+            self._sub_graph.add_conditional_edges(
+                "receive_document",
+                self._route,
+                {
+                    "generate_lecture": "generate_lecture",
+                    "document_to_vector": "document_to_vector",
+                },
+            )
+            self._sub_graph.add_edge("generate_lecture", "reviewer")
+            self._sub_graph.add_conditional_edges(
+                "reviewer",
+                self._route,
+                {
+                    "generate_lecture": "generate_lecture",
+                    "lectures_segments": "lectures_segments",
+                },
+            )
+            self._sub_graph.add_edge("lectures_segments", "upload_document")
+            self._sub_graph.add_edge("upload_document", "receive_document")
+            self._sub_graph.set_finish_point("document_to_vector")
+        except Exception as e:
+            logger.exception(e)
+        finally:
+            logger.info("[LecturerAgent] _set_subgraph executed")
 
-        self._sub_graph.add_edge("generate_lecture", "reviewer")
-
-        self._sub_graph.add_conditional_edges(
-            "reviewer",
-            self._route,
-            {
-                "generate_lecture": "generate_lecture",
-                "lectures_segments": "lectures_segments",
-            },
-        )
-        self._sub_graph.add_edge("lectures_segments", "upload_document")
-        self._sub_graph.add_edge("upload_document", "receive_document")
-        self._sub_graph.set_finish_point("document_to_vector")
-
-    def _format_document(self, current_page: Document) -> str:
+    def _format_document(self, current_page) -> str:
         return current_page.page_content
 
     def _split_document(self, state: LecturerState) -> LecturerState:
-        document_path = state.get("document_path")
-        lesson_id = state.get("lesson_id")
-        output_dir = f"{DATA_DIR}/slide/{lesson_id}"
-        reader = PdfReader(document_path)
-        total_pages = len(reader.pages)
+        try:
+            document_path = state.get("document_path")
+            lesson_id = state.get("lesson_id")
+            output_dir = f"{DATA_DIR}/slide/{lesson_id}"
+            reader = PdfReader(document_path)
+            total_pages = len(reader.pages)
 
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir, exist_ok=True)
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir, exist_ok=True)
 
-        for i in range(total_pages):
-            writer = PdfWriter()
-            writer.add_page(reader.pages[i])
+            for i in range(total_pages):
+                writer = PdfWriter()
+                writer.add_page(reader.pages[i])
+                output_path = os.path.join(output_dir, f"slide_{i+1}.pdf")
+                with open(output_path, "wb") as f:
+                    writer.write(f)
 
-            output_path = os.path.join(output_dir, f"slide_{i+1}.pdf")
-            with open(output_path, "wb") as f:
-                writer.write(f)
+        except Exception as e:
+            logger.exception(e)
+        finally:
 
-        state.update(slide_dir=output_dir)
+            state.update(slide_dir=output_dir)
+            logger.info("[LecturerAgent] _split_document executed")
         return state
 
     @traceable
     async def _genarate_lecture(self, state: LecturerState) -> LecturerState:
-        feedback = state.get("feedback")
-        current_page = state.get("current_page")
-        txt = self._format_document(current_page)
-
-        page_index = state.get("page_index")
-        response = None
-
         try:
+            feedback = state.get("feedback")
+            current_page = state.get("current_page")
+            txt = self._format_document(current_page)
+            page_index = state.get("page_index")
+            response = None
+
             if page_index == 0:
                 response = await self._chain.ainvoke(
                     {"current_content": txt, "feedback": feedback}
@@ -380,21 +421,28 @@ class LecturerAgent(BaseAgent):
                         "feedback": feedback,
                     }
                 )
+
+            current_lecture = response.content
+
         except Exception as e:
-            logging.exception(e)
-        current_lecture = response.content
-        state.update(current_lecture=current_lecture)
+            logger.exception(e)
+        finally:
+            state.update(current_lecture=current_lecture)
+            logger.info("[LecturerAgent] _genarate_lecture executed")
         return state
 
     async def _read_documents(self, state: LecturerState) -> LecturerState:
-        document_path = state.get("document_path")
-        if os.path.exists(document_path):
-            try:
+        try:
+            document_path = state.get("document_path")
+            if os.path.exists(document_path):
                 loader = PyPDFLoader(document_path)
                 documents = await loader.aload()
-                state.update(documents=documents)
-            except Exception as e:
-                logging.exception(e)
+
+        except Exception as e:
+            logger.exception(e)
+        finally:
+            state.update(documents=documents)
+            logger.info("[LecturerAgent] _read_documents executed")
         return state
 
     async def process(self, state: State, config: RunnableConfig) -> State:
@@ -409,18 +457,24 @@ class LecturerAgent(BaseAgent):
                 "page_index": 0,
                 "lesson_id": lesson_id,
             }
+
             sub_graph = self.get_subgraph()
             response = await sub_graph.ainvoke(
                 input=input_state, config={"recursion_limit": 50}
             )
+
             lectures = response.get("lectures")
             lectures_segments = response.get("lectures_segments")
             slide_urls = response.get("slide_urls")
+
             lecture = {
                 slide_urls[i]: (lectures[i], lectures_segments[i])
                 for i in range(len(slide_urls))
             }
-            state.update(lecture=lecture)
+
         except Exception as e:
-            logging.exception(e)
+            logger.exception(e)
+        finally:
+            state.update(lecture=lecture)
+            logger.info("[LecturerAgent] process executed")
         return state
