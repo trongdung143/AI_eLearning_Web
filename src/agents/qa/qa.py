@@ -24,13 +24,16 @@ from src.config.setup import GOOGLE_API_KEY, DATA_DIR
 
 
 class QaState(dict):
-    feedback: str
+    feedback_sp: str = ""
+    feedback_rv: str = ""
     question: str
-    genarate: str
-    next_node: str
+    generate: str = ""
+    next_node: str = ""
     document_path: str
     vectorstore_path: str
-    documents: list[Document]
+    documents: list[Document] = Field(default_factory=list)
+    bs_sp: str = ""
+    bs_rv: str = ""
 
 
 class SupervisorResponseFormat(BaseModel):
@@ -41,8 +44,10 @@ class SupervisorResponseFormat(BaseModel):
 
 
 class ReviewerResponseFormat(BaseModel):
-
     binary_score: str = Field(description="yes or no")
+    feedback: str = Field(
+        description="short feedback explaining your reasoning OR suggesting a clearer rewritten version of the question"
+    )
 
 
 class Supervisor(BaseAgent):
@@ -60,20 +65,21 @@ class Supervisor(BaseAgent):
 
     async def process(self, state: QaState) -> QaState:
         try:
-            genarate = state.get("genarate")
+            generate = state.get("generate")
             question = state.get("question")
             response = await self._chain.ainvoke(
-                {"question": question, "genarate": genarate}
+                {"question": question, "generate": generate}
             )
             binary_score = response.binary_score
             feedback = ""
-            next_node = None
+            next_node = ""
             if binary_score == "no":
-                next_node = "__end__"
-            else:
-                next_node = "genarate"
+                next_node = "generate"
                 feedback = response.feedback
-            state.update(next_node=next_node, feedback=feedback)
+
+            else:
+                next_node = "__end__"
+            state.update(next_node=next_node, feedback_sp=feedback, bs_sp=binary_score)
         except Exception as e:
             logging.exception(e)
         return state
@@ -101,8 +107,14 @@ class Reviewer(BaseAgent):
                 {"question": question, "document": doc_txt}
             )
             binary_score = response.binary_score
-            next_node = "genarate" if binary_score == "yes" else "re_question"
-            state.update(next_node=next_node)
+            feedback = ""
+            next_node = ""
+            if binary_score == "no":
+                feedback = response.feedback
+                next_node = "re_question"
+            else:
+                next_node = "generate"
+            state.update(next_node=next_node, bs_rv=binary_score, feedback_rv=feedback)
         except Exception as e:
             logging.exception(e)
         return state
@@ -124,7 +136,10 @@ class QuestionReWrite(BaseAgent):
     async def process(self, state: QaState) -> QaState:
         try:
             question = state.get("question")
-            response = await self._chain.ainvoke({"question": question})
+            feedback_rv = state.get("feedback_rv")
+            response = await self._chain.ainvoke(
+                {"question": question, "feedback": feedback_rv}
+            )
             state.update(question=response.content)
         except Exception as e:
             logging.exception(e)
@@ -132,7 +147,7 @@ class QuestionReWrite(BaseAgent):
 
 
 class QaAgent(BaseAgent):
-    VALID_NODES = ["re_question", "genarate", "__end__"]
+    VALID_NODES = ["re_question", "generate", "__end__"]
 
     def __init__(self, tools: Sequence[BaseTool] | None = None) -> None:
         super().__init__(
@@ -178,7 +193,7 @@ class QaAgent(BaseAgent):
         self._sub_graph.add_node("reviewer", self._reviewer.process)
         self._sub_graph.add_node("re_question", self._question_rewrite.process)
         self._sub_graph.add_node("supervisor", self._supervisor.process)
-        self._sub_graph.add_node("genarate", self._genarate)
+        self._sub_graph.add_node("generate", self._genarate)
 
         self._sub_graph.set_entry_point("docs_to_vec")
 
@@ -190,19 +205,19 @@ class QaAgent(BaseAgent):
             self._route,
             {
                 "re_question": "re_question",
-                "genarate": "genarate",
+                "generate": "generate",
             },
         )
 
         self._sub_graph.add_edge("re_question", "retrieve")
-        self._sub_graph.add_edge("genarate", "supervisor")
+        self._sub_graph.add_edge("generate", "supervisor")
 
         self._sub_graph.add_conditional_edges(
             "supervisor",
             self._route,
             {
                 "__end__": "__end__",
-                "genarate": "genarate",
+                "generate": "generate",
             },
         )
 
@@ -263,12 +278,12 @@ class QaAgent(BaseAgent):
         try:
             question = state.get("question")
             full_txt = self._format_document(state)
-            feedback = state.get("feedback")
+            feedback_sp = state.get("feedback_sp")
             response = await self._chain.ainvoke(
-                {"context": full_txt, "question": question, "feedback": feedback}
+                {"context": full_txt, "question": question, "feedback": feedback_sp}
             )
-            genarate = response.content
-            state.update(genarate=genarate)
+            generate = response.content
+            state.update(generate=generate)
         except Exception as e:
             logging.exception(e)
         return state
@@ -282,18 +297,14 @@ class QaAgent(BaseAgent):
             vectorstore_path = f"{DATA_DIR}/vectorstore/{lesson_id}"
 
             input_state = {
-                "feedback": "",
                 "question": question,
-                "genarate": "",
-                "next_node": "",
                 "document_path": document_path,
                 "vectorstore_path": vectorstore_path,
-                "documents": [],
             }
 
             sub_graph = self.get_subgraph()
             response = await sub_graph.ainvoke(input=input_state)
-            state.update(result=response.get("genarate"))
+            state.update(result=response.get("generate"))
         except Exception as e:
             logging.exception(e)
         return state

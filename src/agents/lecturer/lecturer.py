@@ -41,19 +41,19 @@ cloudinary.config(
 
 
 class LecturerState(dict):
-    next_node: str
+    next_node: str = ""
     document_path: str
-    slide_path: str
-    documents: list[Document]
-    lecturer: list[str]
-    lecturer_segment: list[list[str]]
-    url_slide: list[str]
-    document: Document | None
-    prev_lecture: str | None
-    lecture: str | None
-    feedback: str | None
+    slide_dir: str = ""
+    documents: list[Document] = Field(default_factory=list)
+    lectures: list[str] = Field(default_factory=list)
+    lectures_segments: list[list[str]] = Field(default_factory=list)
+    slide_urls: list[str] = Field(default_factory=list)
+    current_page: Document | None
+    prev_lecture: str = ""
+    current_lecture: str = ""
+    feedback: str = ""
     lesson_id: str
-    index: int
+    page_index: int
 
 
 class ReviewerResponseFormat(BaseModel):
@@ -63,7 +63,7 @@ class ReviewerResponseFormat(BaseModel):
 
 class LecturerSegmentResponseFormat(BaseModel):
     content: str = Field(
-        description="A list of short, natural, and coherent lecture segments"
+        description="A list of short, natural, and coherent current_lecture segments"
     )
 
 
@@ -80,8 +80,8 @@ class Reviewer(BaseAgent):
             ReviewerResponseFormat
         )
 
-    def _format_document(self, document: Document) -> str:
-        return document.page_content
+    def _format_document(self, current_page: Document) -> str:
+        return current_page.page_content
 
     def _clean_txt(self, txt: str) -> str:
         txt = (
@@ -99,30 +99,35 @@ class Reviewer(BaseAgent):
 
     async def process(self, state: LecturerState) -> LecturerState:
         try:
-            lecturer = state.get("lecturer", [])
-            document = state.get("document")
-            txt = self._format_document(document)
-            lecture = state.get("lecture")
+            lectures = state.get("lectures", [])
+            current_page = state.get("current_page")
+            txt = self._format_document(current_page)
+            current_lecture = state.get("current_lecture")
             prev_lecture = state.get("prev_lecture")
-            response = await self._chain.ainvoke({"document": txt, "lecture": lecture})
+
+            response = await self._chain.ainvoke(
+                {"current_page": txt, "current_lecture": current_lecture}
+            )
+
             binary_score = response.binary_score
-            feedback = f"Lời giảng bạn vừa viết:\n{lecture} \n\n feedback:\n{response.feedback}"
+            feedback = f"Lời giảng bạn vừa viết:\n{current_lecture} \n\n feedback:\n{response.feedback}"
             next_node = None
 
             if binary_score == "no":
-                next_node = "lecturer"
+                next_node = "generate_lecture"
             else:
                 feedback = ""
-                next_node = "lecturer_segment"
-                lecture = self._clean_txt(lecture)
-                prev_lecture = lecture
-                lecturer.append(lecture)
+                next_node = "lectures_segments"
+                current_lecture = self._clean_txt(current_lecture)
+                prev_lecture = current_lecture
+                lectures.append(current_lecture)
+
             state.update(
                 next_node=next_node,
                 feedback=feedback,
                 prev_lecture=prev_lecture,
-                lecturer=lecturer,
-                lecture=lecture,
+                lectures=lectures,
+                current_lecture=current_lecture,
             )
 
         except Exception as e:
@@ -134,7 +139,7 @@ class LecturerSegmentAgent(BaseAgent):
 
     def __init__(self):
         super().__init__(
-            agent_name="lecturer_segment",
+            agent_name="lectures_segments",
             state=LecturerState,
         )
 
@@ -160,28 +165,36 @@ class LecturerSegmentAgent(BaseAgent):
 
     async def process(self, state: LecturerState) -> LecturerState:
         try:
-            lecturer_segment = state.get("lecturer_segment", [])
-            lecture = state.get("lecture")
+            lectures_segments = state.get("lectures_segments", [])
+            current_lecture = state.get("current_lecture")
             prev_lecture = state.get("prev_lecture")
-            lecturer_segment = state.get("lecturer_segment", [])
+            lectures_segments = state.get("lectures_segments", [])
+
             response = await self._chain.ainvoke(
-                {"previous_lecture": prev_lecture, "lecture": lecture}
+                {"previous_lecture": prev_lecture, "current_lecture": current_lecture}
             )
+
             lecture_segment = json.loads(response.content)
 
             clean_lecture_segment = [
                 self._clean_txt(seg).strip() for seg in lecture_segment
             ]
 
-            lecturer_segment.append(clean_lecture_segment)
-            state.update(lecturer_segment=lecturer_segment)
+            lectures_segments.append(clean_lecture_segment)
+
+            state.update(lectures_segments=lectures_segments)
         except Exception as e:
             logging.exception(e)
         return state
 
 
 class LecturerAgent(BaseAgent):
-    VALID_NODES = ["lecturer", "receive_document", "upload_pdf", "lecturer_segment"]
+    VALID_NODES = [
+        "generate_lecture",
+        "receive_document",
+        "upload_document",
+        "lectures_segments",
+    ]
 
     def __init__(self, tools: Sequence[BaseTool] | None = None) -> None:
         super().__init__(
@@ -204,80 +217,84 @@ class LecturerAgent(BaseAgent):
 
     def _receive_document(self, state: LecturerState) -> LecturerState:
         documents = state.get("documents", [])
-        index = state.get("index")
-        if index == 0:
+        page_index = state.get("page_index")
+        if page_index == 0:
             self._chain = prompt_lecturer_first | self._model
         else:
             self._chain = prompt_lecturer_continue | self._model
 
-        if index >= len(documents):
+        if page_index >= len(documents):
             next_node = "__end__"
             state.update(next_node=next_node)
         else:
-            next_node = "lecturer"
-            index = state.get("index")
-            document = documents[index]
-            state.update(document=document, index=index + 1, next_node=next_node)
+            next_node = "generate_lecture"
+            page_index = state.get("page_index")
+            current_page = documents[page_index]
+            state.update(
+                current_page=current_page,
+                page_index=page_index + 1,
+                next_node=next_node,
+            )
         return state
 
-    def _upload_pdf(self, state: LecturerState) -> LecturerState:
-        index = state.get("index")
+    def _upload_document(self, state: LecturerState) -> LecturerState:
+        page_index = state.get("page_index")
         lesson_id = state.get("lesson_id")
-        file_base = state.get("slide_path")
-        file_path = f"{file_base}/slide_{index}.pdf"
-        url_slide = state.get("url_slide", [])
+        file_base = state.get("slide_dir")
+        file_path = f"{file_base}/slide_{page_index}.pdf"
+        slide_urls = state.get("slide_urls", [])
 
         upload_result = cloudinary.uploader.upload(
             file_path,
             resource_type="raw",
-            public_id=f"slide_{index}",
+            public_id=f"slide_{page_index}",
             folder=lesson_id,
             overwrite=True,
         )
 
         secure_url = upload_result.get("secure_url")
-        url_slide.append(secure_url)
-        state.update(url_slide=url_slide)
+        slide_urls.append(secure_url)
+        state.update(slide_urls=slide_urls)
         return state
 
     def _set_subgraph(self):
         self._sub_graph.add_node("read_documents", self._read_documents)
         self._sub_graph.add_node("receive_document", self._receive_document)
-        self._sub_graph.add_node("lecturer", self._lecturer)
+        self._sub_graph.add_node("generate_lecture", self._genarate_lecture)
         self._sub_graph.add_node("reviewer", self._reviewer.process)
-        self._sub_graph.add_node("split_pdf", self._split_pdf)
-        self._sub_graph.add_node("upload_pdf", self._upload_pdf)
-        self._sub_graph.add_node("lecturer_segment", self._lecturer_segment.process)
+        self._sub_graph.add_node("split_document", self._split_document)
+        self._sub_graph.add_node("upload_document", self._upload_document)
+        self._sub_graph.add_node("lectures_segments", self._lecturer_segment.process)
 
-        self._sub_graph.set_entry_point("split_pdf")
-        self._sub_graph.add_edge("split_pdf", "read_documents")
+        self._sub_graph.set_entry_point("split_document")
+        self._sub_graph.add_edge("split_document", "read_documents")
         self._sub_graph.add_edge("read_documents", "receive_document")
         self._sub_graph.add_conditional_edges(
             "receive_document",
             self._route,
             {
-                "lecturer": "lecturer",
+                "generate_lecture": "generate_lecture",
                 "__end__": "__end__",
             },
         )
 
-        self._sub_graph.add_edge("lecturer", "reviewer")
+        self._sub_graph.add_edge("generate_lecture", "reviewer")
 
         self._sub_graph.add_conditional_edges(
             "reviewer",
             self._route,
             {
-                "lecturer": "lecturer",
-                "lecturer_segment": "lecturer_segment",
+                "generate_lecture": "generate_lecture",
+                "lectures_segments": "lectures_segments",
             },
         )
-        self._sub_graph.add_edge("lecturer_segment", "upload_pdf")
-        self._sub_graph.add_edge("upload_pdf", "receive_document")
+        self._sub_graph.add_edge("lectures_segments", "upload_document")
+        self._sub_graph.add_edge("upload_document", "receive_document")
 
-    def _format_document(self, document: Document) -> str:
-        return document.page_content
+    def _format_document(self, current_page: Document) -> str:
+        return current_page.page_content
 
-    def _split_pdf(self, state: LecturerState) -> LecturerState:
+    def _split_document(self, state: LecturerState) -> LecturerState:
         document_path = state.get("document_path")
         lesson_id = state.get("lesson_id")
         output_dir = f"{DATA_DIR}/slide/{lesson_id}"
@@ -295,20 +312,20 @@ class LecturerAgent(BaseAgent):
             with open(output_path, "wb") as f:
                 writer.write(f)
 
-        state.update(slide_path=output_dir)
+        state.update(slide_dir=output_dir)
         return state
 
     @traceable
-    async def _lecturer(self, state: LecturerState) -> LecturerState:
+    async def _genarate_lecture(self, state: LecturerState) -> LecturerState:
         feedback = state.get("feedback")
-        document = state.get("document")
-        txt = self._format_document(document)
+        current_page = state.get("current_page")
+        txt = self._format_document(current_page)
 
-        index = state.get("index")
+        page_index = state.get("page_index")
         response = None
 
         try:
-            if index == 0:
+            if page_index == 0:
                 response = await self._chain.ainvoke(
                     {"current_content": txt, "feedback": feedback}
                 )
@@ -317,14 +334,14 @@ class LecturerAgent(BaseAgent):
                 response = await self._chain.ainvoke(
                     {
                         "current_content": txt,
-                        "previous_content": prev_lecture,
+                        "previous_lecture": prev_lecture,
                         "feedback": feedback,
                     }
                 )
         except Exception as e:
             logging.exception(e)
-        lecture = response.content
-        state.update(lecture=lecture)
+        current_lecture = response.content
+        state.update(current_lecture=current_lecture)
         return state
 
     async def _read_documents(self, state: LecturerState) -> LecturerState:
@@ -344,27 +361,17 @@ class LecturerAgent(BaseAgent):
             lesson_id = state.get("lesson_id")
             input_state = {
                 "document_path": document_path,
-                "slide_path": "",
-                "documents": [],
-                "next_node": "",
-                "lecturer": [],
-                "lecturer_segment": [],
-                "url_slide": [],
-                "document": None,
-                "prev_lecture": "",
-                "lecture": "",
-                "feedback": None,
-                "index": 0,
+                "page_index": 0,
                 "lesson_id": lesson_id,
             }
             sub_graph = self.get_subgraph()
             response = await sub_graph.ainvoke(input=input_state)
-            lecturer = response.get("lecturer")
-            lecturer_segment = response.get("lecturer_segment")
-            url_slide = response.get("url_slide")
+            lectures = response.get("lectures")
+            lectures_segments = response.get("lectures_segments")
+            slide_urls = response.get("slide_urls")
             lecture = {
-                url_slide[i]: (lecturer[i], lecturer_segment[i])
-                for i in range(len(url_slide))
+                slide_urls[i]: (lectures[i], lectures_segments[i])
+                for i in range(len(slide_urls))
             }
             state.update(lecture=lecture)
         except Exception as e:

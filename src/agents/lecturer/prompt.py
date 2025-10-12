@@ -65,8 +65,8 @@ prompt_lecturer_continue = ChatPromptTemplate.from_messages(
         (
             "human",
             """
-        Đây là phần nội dung của trang trước đó để bạn hiểu ngữ cảnh:
-        {previous_content}
+        Đây là phần lời giảng của trang trước đó để bạn hiểu ngữ cảnh:
+        {previous_lecture}
 
         Đây là nội dung của trang hiện tại cần viết lại:
         {current_content}
@@ -114,10 +114,10 @@ prompt_reviewer = ChatPromptTemplate.from_messages(
             "human",
             """
         Nội dung gốc (trích từ tài liệu PDF):
-        {document}
+        {current_page}
 
         Lời giảng được viết lại:
-        {lecture}
+        {current_lecture}
         """,
         ),
     ]
@@ -168,7 +168,7 @@ prompt_lecturer_segment = ChatPromptTemplate.from_messages(
             "human",
             """
         Đây là nội dung lời giảng sau khi đã được viết lại:
-        {lecture}
+        {current_lecture}
 
         Đây là phần lời giảng trước đó (nếu có) để giúp bạn giữ mạch liên tục:
         {previous_lecture}
