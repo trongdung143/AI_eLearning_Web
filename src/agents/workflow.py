@@ -1,5 +1,4 @@
 from src.agents.qa.qa import QaAgent
-from src.agents.writer.writer import WriterAgent
 from langgraph.graph import StateGraph
 from langchain_core.messages import HumanMessage
 from src.agents.state import State
@@ -22,7 +21,6 @@ def start(state: State) -> State:
 
 qa = QaAgent()
 lecturer = LecturerAgent()
-writer = WriterAgent()
 
 workflow = StateGraph(State)
 
@@ -30,7 +28,6 @@ workflow = StateGraph(State)
 workflow.add_node("start", start)
 workflow.add_node("qa", qa.process)
 workflow.add_node("lecturer", lecturer.process)
-workflow.add_node("writer", writer.process)
 workflow.set_entry_point("start")
 
 workflow.add_conditional_edges(
@@ -45,9 +42,8 @@ workflow.add_conditional_edges(
 #
 # for agent in VALID_AGENTS:
 #     workflow.add_edge(agent, "writer")
-workflow.add_edge("qa", "writer")
+workflow.add_edge("qa", "__end__")
 workflow.add_edge("lecturer", "__end__")
-workflow.set_finish_point("writer")
 
 graph = workflow.compile()  # checkpointer=MemorySaver())
 qa_graph = qa.get_subgraph()

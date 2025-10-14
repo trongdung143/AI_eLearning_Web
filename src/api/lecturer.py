@@ -11,7 +11,6 @@ PDF_DIR = f"{DATA_DIR}/pdf"
 
 @router.post("/lecturer")
 async def qa_stream(
-    type_request: str = Form(""),
     course_id: str = Form(""),
     pdf_file: UploadFile = File(...),
 ) -> dict:
@@ -34,7 +33,7 @@ async def qa_stream(
         }
     }
     input_state = {
-        "type_request": type_request,
+        "type_request": "lecturer",
         "task": None,
         "result": None,
         "lecture": None,

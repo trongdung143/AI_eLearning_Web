@@ -8,6 +8,7 @@ from langchain_core.runnables.config import RunnableConfig
 from langchain_core.tools.base import BaseTool, Field
 from langchain_core.vectorstores.base import VectorStoreRetriever
 from langchain_google_genai.embeddings import GoogleGenerativeAIEmbeddings
+from langchain_core.messages import AIMessage
 
 from pydantic import BaseModel
 from src.agents.base import BaseAgent
@@ -16,6 +17,7 @@ from src.agents.qa.prompt import (
     prompt_supervisor,
     prompt_reviewer,
     prompt_question_rewrite,
+    prompt_writer,
 )
 from src.agents.state import State
 from src.config.setup import GOOGLE_API_KEY, DATA_DIR
@@ -33,6 +35,7 @@ class QaState(dict):
     documents: list[Document] = Field(default_factory=list)
     bs_sp: str = ""
     bs_rv: str = ""
+    answer: str = ""
 
 
 class SupervisorResponseFormat(BaseModel):
@@ -59,24 +62,32 @@ class Supervisor(BaseAgent):
             SupervisorResponseFormat
         )
 
+    def _format_document(self, state: QaState) -> str:
+        documents = state.get("documents")
+        full_txt = ""
+        for doc in documents:
+            full_txt += doc.page_content + "\n\n"
+        return full_txt
+
     async def process(self, state: QaState) -> QaState:
         try:
             generate = state.get("generate")
             question = state.get("question")
+            doc_txt = self._format_document(state)
 
             response = await self._chain.ainvoke(
-                {"question": question, "generate": generate}
+                {"question": question, "generate": generate, "context": doc_txt}
             )
 
-            binary_score = response.binary_score
+            binary_score = getattr(response, "binary_score", "no")
             feedback = ""
             next_node = ""
 
             if binary_score == "no":
                 next_node = "generate"
-                feedback = response.feedback
+                feedback = getattr(response, "feedback", "")
             else:
-                next_node = "__end__"
+                next_node = "writer"
 
         except Exception as e:
             logger.exception(e)
@@ -96,23 +107,29 @@ class Reviewer(BaseAgent):
             ReviewerResponseFormat
         )
 
+    def _format_document(self, state: QaState) -> str:
+        documents = state.get("documents")
+        full_txt = ""
+        for doc in documents:
+            full_txt += doc.page_content + "\n\n"
+        return full_txt
+
     async def process(self, state: QaState) -> QaState:
         try:
-            documents = state.get("documents")
             question = state.get("question")
 
-            doc_txt = documents[0].page_content if documents else ""
+            doc_txt = self._format_document(state)
 
             response = await self._chain.ainvoke(
                 {"question": question, "document": doc_txt}
             )
 
-            binary_score = response.binary_score
+            binary_score = getattr(response, "binary_score", "no")
             feedback = ""
             next_node = ""
 
             if binary_score == "no":
-                feedback = response.feedback
+                feedback = getattr(response, "feedback", "")
                 next_node = "re_question"
             else:
                 next_node = "generate"
@@ -131,9 +148,7 @@ class QuestionReWrite(BaseAgent):
 
         self._prompt = prompt_question_rewrite
 
-        self._chain = self._prompt | self._model.with_structured_output(
-            ReviewerResponseFormat
-        )
+        self._chain = self._prompt | self._model
 
     async def process(self, state: QaState) -> QaState:
         try:
@@ -152,8 +167,33 @@ class QuestionReWrite(BaseAgent):
         return state
 
 
+class Writer(BaseAgent):
+    def __init__(self, tools: Sequence[BaseTool] | None = None) -> None:
+        super().__init__(agent_name="writer", state=QaState)
+
+        self._prompt = prompt_writer
+
+        self._chain = self._prompt | self._model
+
+    async def process(self, state: QaState) -> QaState:
+        try:
+            generate = state.get("generate")
+            question = state.get("question")
+            response = await self._chain.ainvoke(
+                {"question": question, "generate": generate}
+            )
+            answer = response.content
+
+        except Exception as e:
+            logger.exception(e)
+        finally:
+            state.update(answer=answer)
+            logger.info("[Write] process executed")
+        return state
+
+
 class QaAgent(BaseAgent):
-    VALID_NODES = ["re_question", "generate", "__end__"]
+    VALID_NODES = ["re_question", "generate", "__end__", "writer"]
 
     def __init__(self, tools: Sequence[BaseTool] | None = None) -> None:
         super().__init__(agent_name="qa", tools=tools, state=QaState)
@@ -165,6 +205,8 @@ class QaAgent(BaseAgent):
         self._supervisor = Supervisor()
 
         self._reviewer = Reviewer()
+
+        self._writer = Writer()
 
         self._question_rewrite = QuestionReWrite()
 
@@ -194,6 +236,7 @@ class QaAgent(BaseAgent):
             self._sub_graph.add_node("re_question", self._question_rewrite.process)
             self._sub_graph.add_node("supervisor", self._supervisor.process)
             self._sub_graph.add_node("generate", self._genarate)
+            self._sub_graph.add_node("writer", self._writer.process)
 
             self._sub_graph.set_entry_point("retrieve")
             self._sub_graph.add_edge("retrieve", "reviewer")
@@ -210,8 +253,10 @@ class QaAgent(BaseAgent):
             self._sub_graph.add_conditional_edges(
                 "supervisor",
                 self._route,
-                {"__end__": "__end__", "generate": "generate"},
+                {"writer": "writer", "generate": "generate"},
             )
+
+            self._sub_graph.set_finish_point("writer")
         except Exception as e:
             logger.exception(e)
         finally:
@@ -257,7 +302,6 @@ class QaAgent(BaseAgent):
             full_txt = self._format_document(state)
             feedback_sp = state.get("feedback_sp")
 
-            print(full_txt)
             response = await self._chain.ainvoke(
                 {"context": full_txt, "question": question, "feedback": feedback_sp}
             )
@@ -281,9 +325,10 @@ class QaAgent(BaseAgent):
 
             response = await sub_graph.ainvoke(input=input_state)
 
+            answer = response.get("answer")
         except Exception as e:
             logger.exception(e)
         finally:
-            state.update(result=response.get("generate"))
+            state.update(result=answer, messages=[AIMessage(content=answer)])
             logger.info("[QaAgent] process executed")
         return state

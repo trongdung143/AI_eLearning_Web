@@ -33,7 +33,6 @@ async def generate_qa_stream(
     question: str,
     user_id: str,
     lesson_id: str,
-    type_request: str,
     messages: Optional[list[dict]] = None,
 ) -> AsyncGenerator[str, None]:
     try:
@@ -47,7 +46,7 @@ async def generate_qa_stream(
         }
         input_state = {
             "messages": [HumanMessage(content=question)],
-            "type_request": type_request,
+            "type_request": "qa",
             "task": question,
             "result": None,
             "lecture": None,
@@ -86,8 +85,8 @@ async def generate_qa_stream(
             if data_type == "messages":
                 response, meta = chunk
                 agent = meta.get("langgraph_node", "unknown")
-                if subgraph:
-                    agent = subgraph[0].split(":")[0]
+                # if subgraph:
+                #     agent = subgraph[0].split(":")[0]
                 if agent == "writer":
                     clean_content = clean_content + response.content
                     yield f"data: {json.dumps({'type': 'chunk','response': response.content, "agent": agent}, ensure_ascii=False)}\n\n"
@@ -107,11 +106,10 @@ async def qa_stream(
     question: str = Form(""),
     user_id: str = Form(""),
     lesson_id: str = Form(""),
-    type_request: str = Form(""),
     messages: Optional[list[dict]] = Form(None),
 ) -> StreamingResponse:
     return StreamingResponse(
-        generate_qa_stream(question, user_id, lesson_id, type_request, messages),
+        generate_qa_stream(question, user_id, lesson_id, messages),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

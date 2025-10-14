@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import json
+import shutil
 
 from langchain_core.tools.base import BaseTool
 from langchain_core.runnables.config import RunnableConfig
@@ -59,6 +60,7 @@ class LecturerState(dict):
     prev_lecture: str = ""
     current_lecture: str = ""
     feedback: str = ""
+    binary_score: str = ""
     lesson_id: str
     page_index: int
 
@@ -69,9 +71,7 @@ class ReviewerResponseFormat(BaseModel):
 
 
 class LecturerSegmentResponseFormat(BaseModel):
-    content: str = Field(
-        description="A list of short, natural, and coherent current_lecture segments"
-    )
+    segment: str = Field(description="is a string with an array")
 
 
 class Reviewer(BaseAgent):
@@ -116,16 +116,20 @@ class Reviewer(BaseAgent):
             txt = self._format_document(current_page)
 
             response = await self._chain.ainvoke(
-                {"current_page": txt, "current_lecture": current_lecture}
+                {
+                    "current_page": txt,
+                    "current_lecture": current_lecture,
+                    "previous_lecture": prev_lecture,
+                }
             )
 
             binary_score = getattr(response, "binary_score", "no")
-            feedback_text = getattr(response, "feedback", "")
+            feedback = getattr(response, "feedback", "")
             logger.info(f"[LecturerAgent] Review result: {binary_score}")
 
             if binary_score == "no":
                 next_node = "generate_lecture"
-                feedback = f"Lời giảng bạn vừa viết:\n{current_lecture}\n\nFeedback:\n{feedback_text}"
+                feedback = f"Lời giảng bạn vừa viết:\n{current_lecture}\n\nFeedback:\n{feedback}"
             else:
                 next_node = "lectures_segments"
                 feedback = ""
@@ -145,6 +149,7 @@ class Reviewer(BaseAgent):
                 prev_lecture=prev_lecture,
                 lectures=lectures,
                 current_lecture=current_lecture,
+                binary_score=binary_score,
             )
 
         return state
@@ -160,9 +165,7 @@ class LecturerSegmentAgent(BaseAgent):
 
         self._prompt = prompt_lecturer_segment
 
-        self._chain = self._prompt | self._model.with_structured_output(
-            LecturerSegmentResponseFormat
-        )
+        self._chain = self._prompt | self._model
 
     def _clean_txt(self, txt: str) -> str:
         txt = (
@@ -190,11 +193,18 @@ class LecturerSegmentAgent(BaseAgent):
             )
 
             try:
-                lecture_segment = json.loads(response.content)
+                raw_content = getattr(response, "content", "")
+
+                raw_content = (
+                    raw_content.replace("```json", "").replace("```", "").strip()
+                )
+
+                lecture_segment = json.loads(raw_content)
+
                 clean_lecture_segment = [
                     self._clean_txt(seg).strip()
-                    for seg in lecture_segment
-                    if seg.strip()
+                    for seg in lecture_segment.get("segment")
+                    if isinstance(seg, str) and seg.strip()
                 ]
                 logger.info("[LecturerAgent] Lecture segment parsed successfully")
             except Exception as e:
@@ -475,6 +485,18 @@ class LecturerAgent(BaseAgent):
         except Exception as e:
             logger.exception(e)
         finally:
+            if document_path and os.path.exists(document_path):
+                try:
+                    os.remove(document_path)
+                except Exception as e:
+                    logger.exception(f"Could not remove document: {e}")
+
+            slide_dir = f"src/data/slide/{lesson_id}"
+            if os.path.exists(slide_dir):
+                try:
+                    shutil.rmtree(slide_dir)
+                except Exception as e:
+                    logger.exception(f"Could not remove slide folder: {e}")
             state.update(lecture=lecture)
             logger.info("[LecturerAgent] process executed")
         return state

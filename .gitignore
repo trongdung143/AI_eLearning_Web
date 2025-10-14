@@ -8,3 +8,4 @@ note.txt
 .env
 .gitignore
 .langgraph_api/
+prompt.txt
