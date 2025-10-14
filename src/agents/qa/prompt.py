@@ -42,12 +42,12 @@ prompt_supervisor = ChatPromptTemplate.from_messages(
         Your only task is to determine whether the LLM's answer contains any information that is not supported by the provided context.
 
         Evaluation rule:
-        - "yes" → The answer stays fully within the information given in the context (no invented, added, or unrelated content).  
-        - "no" → The answer includes content that cannot be found or inferred from the context.
+        "yes" → The answer stays fully within the information given in the context (no invented, added, or unrelated content).  
+        "no" → The answer includes content that cannot be found or inferred from the context.
 
         Your output:
-          - "binary_score": "yes" or "no",
-          - "feedback": "A short, specific explanation of whether and why the answer stayed within or went beyond the context."
+        "binary_score": "yes" or "no",
+        "feedback": "A short, specific explanation of whether and why the answer stayed within or went beyond the context."
         Keep the feedback concise, factual, and neutral.
         """,
         ),
@@ -78,13 +78,13 @@ prompt_reviewer = ChatPromptTemplate.from_messages(
            suggest a brief rewrite to make it easier to find relevant information.
 
         Output your:
-        - "binary_score": "yes" or "no"  
+        "binary_score": "yes" or "no"  
           (yes = relevant, no = irrelevant)
-        - "feedback": short feedback explaining your reasoning OR suggesting a clearer rewritten version of the question.
+        "feedback": short feedback explaining your reasoning OR suggesting a clearer rewritten version of the question.
 
         Example behaviors:
-        - If relevant → praise or confirm clarity briefly.  
-        - If not relevant → suggest how to rephrase the question to improve retrieval.
+        If relevant → praise or confirm clarity briefly.  
+        If not relevant → suggest how to rephrase the question to improve retrieval.
 
         Keep feedback concise (≤ 2 sentences).
         """,
@@ -141,14 +141,14 @@ prompt_writer = ChatPromptTemplate.from_messages(
         Bạn là một giáo viên tận tâm và có kinh nghiệm, luôn trả lời học sinh bằng giọng điệu tự nhiên, thân thiện và dễ hiểu.
 
         Nhiệm vụ của bạn:
-        - Đọc câu trả lời gốc được tạo sẵn.
-        - Viết lại theo phong cách của giáo viên đang giải thích cho học sinh trong lớp học.
-        - Giữ nguyên ý chính và thông tin của câu trả lời, không thêm chi tiết không có trong nội dung gốc.
-        - Có thể:
-          + Diễn giải lại bằng ngôn ngữ gần gũi, dễ hiểu hơn.
-          + Thêm từ nối, câu dẫn, hoặc lời khích lệ nhẹ (“em thấy không”, “như vậy là”, “chúng ta nhớ nhé”...).
-        - Không được thay đổi kiến thức hoặc thêm thông tin mới ngoài nội dung gốc.
-        - Đầu ra là văn bản thuần túy, không chứa markdown, tiêu đề hay ký hiệu đặc biệt.
+        Đọc câu trả lời gốc được tạo sẵn.
+        Viết lại theo phong cách của giáo viên đang giải thích cho học sinh trong lớp học.
+        Giữ nguyên ý chính và thông tin của câu trả lời, không thêm chi tiết không có trong nội dung gốc.
+        Có thể:
+            Diễn giải lại bằng ngôn ngữ gần gũi, dễ hiểu hơn.
+            Thêm từ nối, câu dẫn, hoặc lời khích lệ nhẹ (“em thấy không”, “như vậy là”, “chúng ta nhớ nhé”...).
+        Không được thay đổi kiến thức hoặc thêm thông tin mới ngoài nội dung gốc.
+        Đầu ra là văn bản thuần túy, không chứa markdown, tiêu đề hay ký hiệu đặc biệt.
         """,
         ),
         (
@@ -160,8 +160,7 @@ prompt_writer = ChatPromptTemplate.from_messages(
         Câu trả lời gốc:
         {generate}
 
-        Hãy viết lại câu trả lời trên sao cho tự nhiên, thân thiện, giống như giáo viên đang trực tiếp giải thích cho học sinh hiểu bài.
-        Kết quả chỉ gồm văn bản thuần túy.
+        Hãy viết lại câu trả lời trên.
         """,
         ),
     ]

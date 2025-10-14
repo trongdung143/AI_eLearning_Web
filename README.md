@@ -1,228 +1,140 @@
-# AI Chatbot Project
+# AI_eLearning_Web
 
-An AI chatbot project built with FastAPI, LangChain, and other modern technologies. This project focuses on creating an intelligent chatbot capable of handling various tasks through specialized agents.
+Một dự án mẫu bằng Python để xử lý file PDF thành slide, sinh lời giảng và hệ thống hỏi đáp dựa trên vectorstore.
 
+## Mục đích
+Ứng dụng này đọc tài liệu PDF (slide), tách từng trang thành file PDF riêng, dùng mô hình để sinh lời giảng cho mỗi trang, kiểm duyệt và phân đoạn nội dung, lưu vectorstore để hỗ trợ trả lời câu hỏi (QA). Có các agent chính: `lecturer` (tạo lecture, tách slide, upload), `qa` (truy vấn trả lời dựa trên vectorstore) và các agent phụ trợ (supervisor, reviewer, writer,...).
 
-## Project Structure
+## Cấu trúc dự án (chính)
 
-```
-├── src/
-│   ├── agents/           # Specialized agents
-│   ├── api/             # API endpoints
-│   ├── config/          # Configuration
-│   ├── static/          # Static files
-│   ├── test/            # Unit tests
-│   ├── tools/           # Support tools
-│   ├── utils/           # Utilities
-│   └── main.py         # Entry point
-├── docker-compose.yml
-├── Dockerfile
-├── nginx.conf
-├── requirements.txt
-└── README.md
-```
+- `src/main.py` - entrypoint FastAPI, cấu hình middleware và đăng ký router.
+- `src/api/` - các router API (lecturer, qa).
+- `src/agents/` - logic agent: `lecturer`, `qa`, `assessment`, `state`, `workflow`.
+- `src/config/setup.py` - nạp biến môi trường và cấu hình API keys.
+- `src/data/` - nơi lưu `slide/` và `vectorstore/` (được cấu hình thông qua `DATA_DIR`).
+- `requirements.txt` - danh sách phụ thuộc Python.
 
+## Công nghệ sử dụng
 
-### Technologies Used
-- 🤖 **AI/ML**: LangChain, LangGraph, TensorFlow, PyTorch, HuggingFace, SpaCy, Sentence Transformers, MCP, OpenCV
-- 🌐 **APIs**: Together API, Gemini API, Google API  
-- ⚙️ **Backend**: FastAPI, Nginx, Docker, PostgreSQL
+Dự án sử dụng các công nghệ, framework và thư viện chính sau:
 
+- Ngôn ngữ & runtime:
+  - Python 3.9+ (repo yêu cầu Python 3.12+ theo README hiện tại; runtime tối thiểu có thể là 3.9+ tuỳ thư viện)
 
-## Multi-Agent Architecture
+- Web & server:
+  - FastAPI (API framework)
+  - Uvicorn (ASGI server để chạy FastAPI)
 
-The chatbot is built on a Multi-Agent architecture, where each agent handles a specific role. Below are the details of the main agents in the system:
+- LLM / Embeddings / Orchestration:
+  - LangChain / langchain-core (agent, prompt, runnable flow)
+  - langchain-community (document loaders, vectorstore helpers)
+  - langchain-google-genai (Google Generative AI Embeddings)
+  - langsmith / langgraph (tracing, workflow helpers)
 
-![System Architecture](src/images/graph.png)
+- Vector store & retrieval:
+  - FAISS (`faiss-cpu`) để lưu và truy vấn vectorstore
+  - Chromadb (nếu cần - có trong `requirements.txt`)
 
-### Core Agents
+- Xử lý tài liệu / PDF:
+  - PyPDF / pypdf (tách trang, đọc/ghi PDF)
+  - PyPDFLoader (từ langchain_community) hoặc pymupdf (muPDF) cho các lựa chọn tải/đọc PDF
 
-#### 1. BaseAgent
-- **Role**: Base class for all agents in the system
-- **Functions**:
-  - Initialize agent and manage tools
-  - Integration with Google Generative AI (gemini-2.0-flash)
-  - Build and manage state graph for processing flow within each agent
-  - Coordinate processing flow between agents
+- Các thư viện tiện ích khác:
+  - python-dotenv (tải biến môi trường từ `.env`)
+  - pydantic (data models / validation)
+  - cloudinary (upload file lên Cloudinary)
+  - tavily-python (tùy cấu hình, có trong requirements)
+  - TensorFlow / tf-keras (cần nếu sử dụng mô hình cục bộ trong một số flows)
 
-#### 2. AssignerAgent
-- **Role**: Analyze and route requests to appropriate agents
-- **Assignment Logic**:
-  - Writer: Simple requests (expression, rewriting, explanation)
-  - Analyst: Complex requests (reasoning, analysis, problem-solving)
-  - Coder: Programming-related requests, code, debugging
-  - Planner: Planning and process requests
-  - Search: Information lookup
-  - Tool: External tool usage (API, file ops)
-  - Vision: Image processing and OCR
+Lưu ý: một số package (như `faiss-cpu`) có thể cần lưu ý cài đặt trên Windows — nếu gặp lỗi, cân nhắc dùng môi trường Linux hoặc WSL, hoặc cài phiên bản FAISS phù hợp.
 
-#### 3. AnalystAgent
-![Analyst Architecture](src/images/analyst.png)
-- **Role**: Deep analysis of user requests
-- **Functions**:
-  - Clarify and structure requests
-  - Identify goals and expected outcomes
-  - Analyze feasibility
-  - Propose solution approaches
+## Yêu cầu môi trường
 
-### Specialized Agents
-#### 4. SearchAgent
-- **Role**: Information search and synthesis
-- **Functions**:
-  - Search information from web or knowledge base
-  - Filter and return relevant results
-  - Cite information sources
-  - No speculation, only data-based responses
+Cần Python 3.12+ (kiểm tra bằng `python --version`). Cài các phụ thuộc trong `requirements.txt`.
 
-### 5. RagAgent
-![Rag Architecture](src/images/rag.png)
-- **Role**: Retrieval-Augmented Generation (RAG) – combine document retrieval with response generation
-- **Functions**:
-  - Convert input documents into vector embeddings and store them in a vector database
-  - Perform retrieval: search for the most relevant chunks from the knowledge base
-  - Provide the retrieved context to the LLM for answer generation
-  - Review the generated answer: if the information is incomplete or unclear, trigger a re-question step to refine the query
-  - Ensure responses are grounded in retrieved data (no hallucinations)
-  - Pass results to the Supervisor Agent when the flow needs to end or be redirected
+Biến môi trường cần thiết (có thể đặt trong `.env`):
 
-#### 6. CoderAgent
-- **Role**: Handle programming-related issues
-- **Functions**:
-  - Write and edit code
-  - Debug errors
-  - Performance optimization
-  - Technical solution consulting
+- `GOOGLE_API_KEY` - API key dùng cho embedding (Google Generative AI Embeddings).
+- `LANGSMITH_TRACING`, `LANGSMITH_ENDPOINT`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT` - (tùy chọn) cấu hình Langsmith nếu dùng tracing/metadata.
+- `TAVILY_API_KEY` - (nếu dùng) key cho Tavily.
+- `CLOUDINARY_API_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` - dùng để upload slide lên Cloudinary.
+- `DATA_DIR` - thư mục gốc để lưu `slide/` và `vectorstore/`. Mặc định phải tồn tại hoặc được tạo tự động (ví dụ: `src/data`).
 
-#### 7. PlannerAgent
-- **Role**: Planning and strategy
-- **Functions**:
-  - Create detailed plans
-  - Break down tasks into steps
-  - Estimate time and resources
-  - Track progress
+Tạo file `.env` ở root repo với nội dung ví dụ:
 
-#### 8. MemoryAgent
-- **Role**: Memory and context management
-- **Functions**:
-  - Store important information
-  - Maintain conversation context
-  - Retrieve relevant information
-  - Manage interaction history
-  - Summarize context when it becomes too long
+GOOGLE_API_KEY=your_google_api_key_here
+LANGSMITH_API_KEY=your_langsmith_api_key_here
+LANGSMITH_ENDPOINT=
+LANGSMITH_PROJECT=
+TAVILY_API_KEY=
+CLOUDINARY_API_NAME=your_cloud_name
+CLOUDINARY_API_KEY=your_cloudinary_api_key
+CLOUDINARY_API_SECRET=your_cloudinary_api_secret
+DATA_DIR=src/data
 
-#### 9. WriterAgent
-- **Role**: Content creation and editing
-- **Functions**:
-  - Write text based on requirements
-  - Edit and optimize content
-  - Create summary reports
-  - Clear idea expression
+## Cài đặt
 
-#### 10. ToolAgent
-- **Role**: External tool management and usage
-- **Functions**:
-  - Integration with external APIs
-  - File system operations
-  - Service connections (Gmail, Drive)
-  - System task processing
+1. Tạo virtualenv và kích hoạt nó:
 
-#### 11. VisionAgent
-- **Role**: Image-related task processing
-- **Functions**:
-  - Image analysis
-  - Text recognition (OCR)
-  - Image processing and editing
-  - Image generation and adjustment
-
-### Request Processing Flow
-
-1. **Initialization**:
-   - All requests start from `MemoryAgent`
-   - `MemoryAgent` stores context and summarizes if context is too long for `AssignerAgent`
-
-2. **Task Assignment**:
-   - `AssignerAgent` analyzes request and determines appropriate agent
-   - Based on request type, routes to one of the agents:
-     - Analyst (complex analysis)
-     - Writer (simple tasks)
-     - Coder (code-related)
-     - Planner (planning)
-     - Search (information lookup)
-     - Tool (tool usage)
-     - Vision (image processing)
-
-3. **Specialized Processing**:
-   - Each agent processes according to its expertise
-   - `AnalystAgent` transfers results to `SupervisorAgent` after analysis
-   - `SupervisorAgent` decides which agent to route to and if user intervention is needed:
-     - Routes to `CalculatorAgent` if calculations needed
-     - Or routes to `WriterAgent` for response
-
-4. **Process Completion**:
-   - All agents transfer final results to `WriterAgent`
-   - `WriterAgent` formats and returns final response
-
-### Architecture Advantages
-
-1. **Modular and Extensible**:
-   - Each agent operates independently
-   - Easy to add new agents
-   - No impact on other agents during upgrades
-
-2. **Specialization**:
-   - Each agent focuses on specific tasks
-   - Optimization for each task type
-   - Easy to improve individual aspects
-
-3. **Processing Flexibility**:
-   - Adjustable processing flow based on requirements
-   - Supports parallel processing when needed
-   - Easy to add new processing steps
-
-4. **Efficient State Management**:
-   - Uses StateGraph for flow management
-   - Stores and tracks processing progress
-   - Easy debugging and troubleshooting
-
-## System Requirements
-
-- Python 3.12+
-- Docker and Docker Compose
-- Nginx (for production)
-
-## Installation
-
-1. Clone repository:
-```bash
-git clone https://github.com/trongdung143/chatbot.git
-cd chatbot
+```pwsh
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 ```
 
-2. Create virtual environment and install dependencies:
-```bash
-python -m venv venv
+2. Cài các phụ thuộc:
 
-source venv/bin/activate  # Linux/Mac
-.\venv\Scripts\activate  # Windows
-
+```pwsh
 pip install -r requirements.txt
 ```
 
-3. Configure environment:
-- Create `.env` file from template and update environment variables
+3. Tạo file `.env` theo phần "Yêu cầu môi trường" ở trên.
 
-## Running the Application
+## Chạy ứng dụng (phát triển)
 
-### Development
+Chạy FastAPI bằng `uvicorn` (từ root dự án):
 
-```bash
+```pwsh
 uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### Production with Docker
+Sau đó bạn có thể truy cập API trên `http://localhost:8000`.
 
-```bash
-docker-compose up -d
-```
+## Luồng xử lý chính
 
-Application will be available at: http://localhost:8000
+- Graph flow:
+
+![graph Architecture](src/images/graph.png)
+- Lecturer flow:
+
+![lecturer Architecture](src/images/lecturer.png)
+  - Nhận file PDF (đường dẫn được cung cấp trong request), tách từng trang bằng `pypdf` và lưu vào `DATA_DIR/slide/{lesson_id}`.
+  - Với mỗi trang, gọi prompt/model để sinh lời giảng (`prompt_lecturer_first` / `prompt_lecturer_continue`).
+  - Dùng `Reviewer` để kiểm duyệt (có thể yêu cầu sinh lại nếu bị đánh giá là chưa đủ tốt).
+  - Phân đoạn lecture (`LecturerSegmentAgent`) để tách thành các phần nhỏ.
+  - Tạo vectorstore (FAISS) từ nội dung đã tách và lưu vào `DATA_DIR/vectorstore/{lesson_id}` để sử dụng cho truy vấn QA.
+  - Upload từng slide (PDF) lên Cloudinary nếu cấu hình Cloudinary đầy đủ.
+
+- QA flow:
+
+![qa Architecture](src/images/qa.png)
+  - Tải vectorstore (FAISS) từ `DATA_DIR/vectorstore/{lesson_id}`.
+  - Lấy đoạn văn bản liên quan bằng retriever (k tìm kiếm top-k tương tự) và gọi mô hình để tạo câu trả lời.
+  - Có các bước review/supervisor để kiểm tra và chỉnh sửa câu hỏi/đáp án.
+
+
+## Gợi ý phát triển và kiểm thử
+
+- Nếu gặp lỗi liên quan tới GPY hoặc FAISS, cân nhắc cài `faiss-cpu` phù hợp với hệ điều hành (Windows có thể khó cài một số bản). `requirements.txt` đã liệt kê `faiss-cpu`.
+- Các prompt nằm trong `src/agents/*/prompt.py`. Bạn có thể điều chỉnh prompt để thay đổi cách mô hình sinh lecture/answer.
+
+## Notes / Lưu ý
+
+- File cấu hình API key được lấy từ `.env` thông qua `python-dotenv` (xem `src/config/setup.py`).
+- `src/main.py` có middleware chặn các request có chuỗi nghi ngờ (wget, curl, rm, chmod, v.v.) — lưu ý khi thử nghiệm.
+- Sau khi process xong, `LecturerAgent.process` cố gắng xoá file PDF gốc và thư mục slide tạm để dọn dẹp.
+
+## Liên hệ
+Nếu cần hỗ trợ, mở issue trên repository hoặc liên hệ tác giả dự án.
+
+---
+Tài liệu này được tạo tự động dựa trên mã nguồn hiện có. Nếu bạn muốn tôi mở rộng README (ví dụ: ví dụ request API, schema request/response cụ thể hoặc hướng dẫn deploy), cho biết chi tiết bạn muốn thêm.
