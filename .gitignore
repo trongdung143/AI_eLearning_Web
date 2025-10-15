@@ -9,3 +9,4 @@ note.txt
 .gitignore
 .langgraph_api/
 prompt.txt
+data/

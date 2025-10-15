@@ -1,5 +1,4 @@
 from langchain_core.prompts import ChatPromptTemplate
-from langchain import hub
 
 # --- QA Prompt ---
 prompt_qa = ChatPromptTemplate.from_messages(
@@ -38,27 +37,29 @@ prompt_supervisor = ChatPromptTemplate.from_messages(
         (
             "system",
             """
-        You are a strict but fair verifier.  
-        Your only task is to determine whether the LLM's answer contains any information that is not supported by the provided context.
+            You are a strict but fair verifier.  
+            Your only task is to determine whether the LLM's answer contains any information that is not supported by the provided context.
 
-        Evaluation rule:
-        "yes" → The answer stays fully within the information given in the context (no invented, added, or unrelated content).  
-        "no" → The answer includes content that cannot be found or inferred from the context.
+            Evaluation rule:
+            "yes" → The answer stays fully within the information given in the context (no invented, added, or unrelated content).  
+            "no" → The answer includes content that cannot be found or inferred from the context.
 
-        Your output:
-        "binary_score": "yes" or "no",
-        "feedback": "A short, specific explanation of whether and why the answer stayed within or went beyond the context."
-        Keep the feedback concise, factual, and neutral.
+            Your output:
+            "binary_score": "yes" or "no",
+            "feedback": "A short, specific explanation of whether and why the answer stayed within or went beyond the context."
+            Keep the feedback concise, factual, and neutral.
         """,
         ),
         (
             "human",
             """
-        Context (retrieved information):
-        {context}
+            Context (retrieved information):
+            {context}
 
-        LLM answer to evaluate:
-        {generate}
+            LLM answer to evaluate:
+            {generate}
+            
+            Evaluate and provide feedback if necessary.
         """,
         ),
     ]
@@ -97,6 +98,8 @@ prompt_reviewer = ChatPromptTemplate.from_messages(
 
         User question:
         {question}
+        
+        Evaluate and provide feedback if necessary.
         """,
         ),
     ]
@@ -160,7 +163,7 @@ prompt_writer = ChatPromptTemplate.from_messages(
         Câu trả lời gốc:
         {generate}
 
-        Hãy viết lại câu trả lời trên.
+        Viết lại câu trả lời trên.
         """,
         ),
     ]

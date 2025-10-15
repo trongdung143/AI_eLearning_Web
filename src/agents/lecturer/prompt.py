@@ -27,7 +27,7 @@ prompt_lecturer_first = ChatPromptTemplate.from_messages(
         Dưới đây là phản hồi giúp bạn cải thiện lời giảng:
         {feedback}
 
-        Hãy viết lại lời giảng cho nội dung.
+        Viết lại lời giảng cho nội dung.
         """,
         ),
     ]
@@ -63,7 +63,7 @@ prompt_lecturer_continue = ChatPromptTemplate.from_messages(
         Dưới đây là phản hồi giúp bạn cải thiện lời giảng:
         {feedback}
 
-        Hãy viết lại lời giảng cho nội dung trang hiện tại.
+        Viết lại lời giảng cho nội dung trang hiện tại.
         """,
         ),
     ]
@@ -126,7 +126,7 @@ prompt_reviewer = ChatPromptTemplate.from_messages(
         Lời giảng của trang trước (nếu có):
         {previous_lecture}
 
-        Hãy đánh giá và đưa feedback nếu cần.
+        Đánh giá và đưa feedback nếu cần.
         """,
         ),
     ]
@@ -142,7 +142,7 @@ prompt_lecturer_segment = ChatPromptTemplate.from_messages(
 
         Mục tiêu của bạn:
         (1) Tách đoạn:
-           Chia lời giảng thành các đoạn ngắn (mỗi đoạn 1–3 câu).
+           Chia lời giảng thành các đoạn ngắn.
            Mỗi đoạn thể hiện một ý trọn vẹn, hoặc một bước chuyển ý tự nhiên trong bài giảng.
            Giữ đúng thứ tự nội dung, không được thay đổi ý nghĩa hay tóm tắt.
 
@@ -176,7 +176,7 @@ prompt_lecturer_segment = ChatPromptTemplate.from_messages(
         Đây là phần lời giảng trước đó (nếu có) để giúp bạn giữ mạch liên tục:
         {previous_lecture}
 
-        Hãy tách nội dung này thành các đoạn nói ngắn.
+        Tách nội dung này thành các đoạn nói ngắn.
         """,
         ),
     ]

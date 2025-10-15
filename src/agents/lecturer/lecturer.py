@@ -1,28 +1,24 @@
 from typing import Sequence
-import logging
 import os
-import re
-import json
 import shutil
+from src.agents.utils import format_document
+from src.agents.lecturer.reviewer import Reviewer
+from src.agents.lecturer.lecturer_state import LecturerState
+from src.agents.lecturer.lecturer_segment import LecturerSegment
 
 from langchain_core.tools.base import BaseTool
 from langchain_core.runnables.config import RunnableConfig
-from langchain_core.documents import Document
 from langchain_community.document_loaders import PyPDFLoader
-from langchain_core.tools.base import BaseTool, Field
 from langchain_community.vectorstores import FAISS
 from langchain_google_genai.embeddings import GoogleGenerativeAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langsmith import traceable
-from pydantic import BaseModel
 
 from src.agents.base import BaseAgent
 from src.agents.state import State
 from src.agents.lecturer.prompt import (
     prompt_lecturer_first,
     prompt_lecturer_continue,
-    prompt_reviewer,
-    prompt_lecturer_segment,
 )
 from pypdf import PdfReader, PdfWriter
 
@@ -43,181 +39,7 @@ cloudinary.config(
     api_secret=CLOUDINARY_API_SECRET,
     secure=True,
 )
-
-logger = logging.getLogger(__name__)
-
-
-class LecturerState(dict):
-    next_node: str = ""
-    document_path: str
-    vectorstore_path: str
-    slide_dir: str = ""
-    documents: list[Document] = Field(default_factory=list)
-    lectures: list[str] = Field(default_factory=list)
-    lectures_segments: list[list[str]] = Field(default_factory=list)
-    slide_urls: list[str] = Field(default_factory=list)
-    current_page: Document | None
-    prev_lecture: str = ""
-    current_lecture: str = ""
-    feedback: str = ""
-    binary_score: str = ""
-    lesson_id: str
-    page_index: int
-
-
-class ReviewerResponseFormat(BaseModel):
-    feedback: str = Field(description="your explanation and constructive comments")
-    binary_score: str = Field(description="yes or no")
-
-
-class LecturerSegmentResponseFormat(BaseModel):
-    segment: str = Field(description="is a string with an array")
-
-
-class Reviewer(BaseAgent):
-    def __init__(self):
-        super().__init__(
-            agent_name="reviewer",
-            state=LecturerState,
-        )
-
-        self._prompt = prompt_reviewer
-
-        self._chain = self._prompt | self._model.with_structured_output(
-            ReviewerResponseFormat
-        )
-
-    def _format_document(self, current_page: Document) -> str:
-        return current_page.page_content
-
-    def _clean_txt(self, txt: str) -> str:
-        txt = (
-            txt.replace("\\n", " ")
-            .replace("\n", " ")
-            .replace("\t", " ")
-            .replace("\r", " ")
-        )
-
-        txt = re.sub(r"[^A-Za-zÀ-ỹ0-9\s]", " ", txt)
-
-        txt = re.sub(r"\s+", " ", txt).strip()
-
-        return txt
-
-    async def process(self, state: LecturerState) -> LecturerState:
-        try:
-            lectures = state.get("lectures", [])
-            current_page = state.get("current_page")
-            current_lecture = state.get("current_lecture", "")
-            prev_lecture = state.get("prev_lecture", "")
-
-            next_node = "lectures_segments"
-            feedback = ""
-            txt = self._format_document(current_page)
-
-            response = await self._chain.ainvoke(
-                {
-                    "current_page": txt,
-                    "current_lecture": current_lecture,
-                    "previous_lecture": prev_lecture,
-                }
-            )
-
-            binary_score = getattr(response, "binary_score", "no")
-            feedback = getattr(response, "feedback", "")
-            logger.info(f"[LecturerAgent] Review result: {binary_score}")
-
-            if binary_score == "no":
-                next_node = "generate_lecture"
-                feedback = f"Lời giảng bạn vừa viết:\n{current_lecture}\n\nFeedback:\n{feedback}"
-            else:
-                next_node = "lectures_segments"
-                feedback = ""
-                current_lecture = self._clean_txt(current_lecture)
-                prev_lecture = current_lecture
-                lectures.append(current_lecture)
-
-        except Exception as e:
-            logger.exception(
-                f"[LecturerAgent] Error while processing page {current_page}: {e}"
-            )
-
-        finally:
-            state.update(
-                next_node=next_node,
-                feedback=feedback,
-                prev_lecture=prev_lecture,
-                lectures=lectures,
-                current_lecture=current_lecture,
-                binary_score=binary_score,
-            )
-
-        return state
-
-
-class LecturerSegmentAgent(BaseAgent):
-
-    def __init__(self):
-        super().__init__(
-            agent_name="lectures_segments",
-            state=LecturerState,
-        )
-
-        self._prompt = prompt_lecturer_segment
-
-        self._chain = self._prompt | self._model
-
-    def _clean_txt(self, txt: str) -> str:
-        txt = (
-            txt.replace("\\n", " ")
-            .replace("\n", " ")
-            .replace("\t", " ")
-            .replace("\r", " ")
-        )
-
-        txt = re.sub(r"[^A-Za-zÀ-ỹ0-9\s]", " ", txt)
-
-        txt = re.sub(r"\s+", " ", txt).strip()
-
-        return txt
-
-    async def process(self, state: LecturerState) -> LecturerState:
-
-        try:
-            lectures_segments = state.get("lectures_segments", [])
-            current_lecture = state.get("current_lecture", "")
-            prev_lecture = state.get("prev_lecture", "")
-            clean_lecture_segment = []
-            response = await self._chain.ainvoke(
-                {"previous_lecture": prev_lecture, "current_lecture": current_lecture}
-            )
-
-            try:
-                raw_content = getattr(response, "content", "")
-
-                raw_content = (
-                    raw_content.replace("```json", "").replace("```", "").strip()
-                )
-
-                lecture_segment = json.loads(raw_content)
-
-                clean_lecture_segment = [
-                    self._clean_txt(seg).strip()
-                    for seg in lecture_segment.get("segment")
-                    if isinstance(seg, str) and seg.strip()
-                ]
-                logger.info("[LecturerAgent] Lecture segment parsed successfully")
-            except Exception as e:
-                logger.exception(f"[LecturerAgent] Invalid JSON response: {e}")
-
-        except Exception as e:
-            logger.exception(f"[LecturerAgent] Error processing lecture segment: {e}")
-
-        finally:
-            if clean_lecture_segment:
-                lectures_segments.append(clean_lecture_segment)
-            state.update(lectures_segments=lectures_segments)
-        return state
+from src.agents.utils import logger
 
 
 class LecturerAgent(BaseAgent):
@@ -243,9 +65,50 @@ class LecturerAgent(BaseAgent):
             google_api_key=GOOGLE_API_KEY,
         )
 
-        self._lecturer_segment = LecturerSegmentAgent()
+        self._lecturer_segment = LecturerSegment()
 
         self._set_subgraph()
+
+    def _set_subgraph(self):
+        try:
+            self._sub_graph.add_node("read_documents", self._read_documents)
+            self._sub_graph.add_node("receive_document", self._receive_document)
+            self._sub_graph.add_node("generate_lecture", self._genarate_lecture)
+            self._sub_graph.add_node("reviewer", self._reviewer.process)
+            self._sub_graph.add_node("split_document", self._split_document)
+            self._sub_graph.add_node("upload_document", self._upload_document)
+            self._sub_graph.add_node(
+                "lectures_segments", self._lecturer_segment.process
+            )
+            self._sub_graph.add_node("document_to_vector", self._document_to_vector)
+
+            self._sub_graph.set_entry_point("split_document")
+            self._sub_graph.add_edge("split_document", "read_documents")
+            self._sub_graph.add_edge("read_documents", "receive_document")
+            self._sub_graph.add_conditional_edges(
+                "receive_document",
+                self._route,
+                {
+                    "generate_lecture": "generate_lecture",
+                    "document_to_vector": "document_to_vector",
+                },
+            )
+            self._sub_graph.add_edge("generate_lecture", "reviewer")
+            self._sub_graph.add_conditional_edges(
+                "reviewer",
+                self._route,
+                {
+                    "generate_lecture": "generate_lecture",
+                    "lectures_segments": "lectures_segments",
+                },
+            )
+            self._sub_graph.add_edge("lectures_segments", "upload_document")
+            self._sub_graph.add_edge("upload_document", "receive_document")
+            self._sub_graph.set_finish_point("document_to_vector")
+        except Exception as e:
+            logger.exception(e)
+        finally:
+            logger.info("[LecturerAgent] _set_subgraph executed")
 
     def _route(self, state: LecturerState) -> str:
         next_node = state.get("next_node").strip()
@@ -339,50 +202,6 @@ class LecturerAgent(BaseAgent):
             logger.info("[LecturerAgent] _document_to_vector executed")
         return state
 
-    def _set_subgraph(self):
-        try:
-            self._sub_graph.add_node("read_documents", self._read_documents)
-            self._sub_graph.add_node("receive_document", self._receive_document)
-            self._sub_graph.add_node("generate_lecture", self._genarate_lecture)
-            self._sub_graph.add_node("reviewer", self._reviewer.process)
-            self._sub_graph.add_node("split_document", self._split_document)
-            self._sub_graph.add_node("upload_document", self._upload_document)
-            self._sub_graph.add_node(
-                "lectures_segments", self._lecturer_segment.process
-            )
-            self._sub_graph.add_node("document_to_vector", self._document_to_vector)
-
-            self._sub_graph.set_entry_point("split_document")
-            self._sub_graph.add_edge("split_document", "read_documents")
-            self._sub_graph.add_edge("read_documents", "receive_document")
-            self._sub_graph.add_conditional_edges(
-                "receive_document",
-                self._route,
-                {
-                    "generate_lecture": "generate_lecture",
-                    "document_to_vector": "document_to_vector",
-                },
-            )
-            self._sub_graph.add_edge("generate_lecture", "reviewer")
-            self._sub_graph.add_conditional_edges(
-                "reviewer",
-                self._route,
-                {
-                    "generate_lecture": "generate_lecture",
-                    "lectures_segments": "lectures_segments",
-                },
-            )
-            self._sub_graph.add_edge("lectures_segments", "upload_document")
-            self._sub_graph.add_edge("upload_document", "receive_document")
-            self._sub_graph.set_finish_point("document_to_vector")
-        except Exception as e:
-            logger.exception(e)
-        finally:
-            logger.info("[LecturerAgent] _set_subgraph executed")
-
-    def _format_document(self, current_page) -> str:
-        return current_page.page_content
-
     def _split_document(self, state: LecturerState) -> LecturerState:
         try:
             document_path = state.get("document_path")
@@ -414,7 +233,7 @@ class LecturerAgent(BaseAgent):
         try:
             feedback = state.get("feedback")
             current_page = state.get("current_page")
-            txt = self._format_document(current_page)
+            txt = format_document(current_page)
             page_index = state.get("page_index")
             response = None
 
@@ -491,7 +310,7 @@ class LecturerAgent(BaseAgent):
                 except Exception as e:
                     logger.exception(f"Could not remove document: {e}")
 
-            slide_dir = f"src/data/slide/{lesson_id}"
+            slide_dir = response.get("slide_dir")
             if os.path.exists(slide_dir):
                 try:
                     shutil.rmtree(slide_dir)

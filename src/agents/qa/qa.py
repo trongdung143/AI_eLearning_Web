@@ -1,195 +1,24 @@
-import logging
 import os
 from typing import Sequence
 
 from langchain_community.vectorstores import FAISS
-from langchain_core.documents import Document
 from langchain_core.runnables.config import RunnableConfig
-from langchain_core.tools.base import BaseTool, Field
 from langchain_core.vectorstores.base import VectorStoreRetriever
 from langchain_google_genai.embeddings import GoogleGenerativeAIEmbeddings
 from langchain_core.messages import AIMessage
+from langchain_core.tools.base import BaseTool
 
-from pydantic import BaseModel
 from src.agents.base import BaseAgent
-from src.agents.qa.prompt import (
-    prompt_qa,
-    prompt_supervisor,
-    prompt_reviewer,
-    prompt_question_rewrite,
-    prompt_writer,
-)
+from src.agents.qa.prompt import prompt_qa
 from src.agents.state import State
 from src.config.setup import GOOGLE_API_KEY, DATA_DIR
+from src.agents.qa.qa_state import QaState
+from src.agents.qa.supervisor import Supervisor
+from src.agents.qa.writer import Writer
+from src.agents.qa.reviewer import Reviewer
+from src.agents.qa.rewrite_question import QuestionReWrite
 
-logger = logging.getLogger(__name__)
-
-
-class QaState(dict):
-    feedback_sp: str = ""
-    feedback_rv: str = ""
-    question: str
-    generate: str = ""
-    next_node: str = ""
-    vectorstore_path: str
-    documents: list[Document] = Field(default_factory=list)
-    bs_sp: str = ""
-    bs_rv: str = ""
-    answer: str = ""
-
-
-class SupervisorResponseFormat(BaseModel):
-    feedback: str = Field(
-        description="a short but clear explanation or suggestion for improvement"
-    )
-    binary_score: str = Field(description="yes or no")
-
-
-class ReviewerResponseFormat(BaseModel):
-    binary_score: str = Field(description="yes or no")
-    feedback: str = Field(
-        description="short feedback explaining your reasoning OR suggesting a clearer rewritten version of the question"
-    )
-
-
-class Supervisor(BaseAgent):
-    def __init__(self):
-        super().__init__(agent_name="supervisor", state=QaState)
-
-        self._prompt = prompt_supervisor
-
-        self._chain = self._prompt | self._model.with_structured_output(
-            SupervisorResponseFormat
-        )
-
-    def _format_document(self, state: QaState) -> str:
-        documents = state.get("documents")
-        full_txt = ""
-        for doc in documents:
-            full_txt += doc.page_content + "\n\n"
-        return full_txt
-
-    async def process(self, state: QaState) -> QaState:
-        try:
-            generate = state.get("generate")
-            question = state.get("question")
-            doc_txt = self._format_document(state)
-
-            response = await self._chain.ainvoke(
-                {"question": question, "generate": generate, "context": doc_txt}
-            )
-
-            binary_score = getattr(response, "binary_score", "no")
-            feedback = ""
-            next_node = ""
-
-            if binary_score == "no":
-                next_node = "generate"
-                feedback = getattr(response, "feedback", "")
-            else:
-                next_node = "writer"
-
-        except Exception as e:
-            logger.exception(e)
-        finally:
-            state.update(next_node=next_node, feedback_sp=feedback, bs_sp=binary_score)
-            logger.info("[Supervisor] process executed")
-        return state
-
-
-class Reviewer(BaseAgent):
-    def __init__(self):
-        super().__init__(agent_name="reviewer", state=QaState)
-
-        self._prompt = prompt_reviewer
-
-        self._chain = self._prompt | self._model.with_structured_output(
-            ReviewerResponseFormat
-        )
-
-    def _format_document(self, state: QaState) -> str:
-        documents = state.get("documents")
-        full_txt = ""
-        for doc in documents:
-            full_txt += doc.page_content + "\n\n"
-        return full_txt
-
-    async def process(self, state: QaState) -> QaState:
-        try:
-            question = state.get("question")
-
-            doc_txt = self._format_document(state)
-
-            response = await self._chain.ainvoke(
-                {"question": question, "document": doc_txt}
-            )
-
-            binary_score = getattr(response, "binary_score", "no")
-            feedback = ""
-            next_node = ""
-
-            if binary_score == "no":
-                feedback = getattr(response, "feedback", "")
-                next_node = "re_question"
-            else:
-                next_node = "generate"
-
-        except Exception as e:
-            logger.exception(e)
-        finally:
-            state.update(next_node=next_node, bs_rv=binary_score, feedback_rv=feedback)
-            logger.info("[Reviewer] process executed")
-        return state
-
-
-class QuestionReWrite(BaseAgent):
-    def __init__(self):
-        super().__init__(agent_name="question_rewrite", state=QaState)
-
-        self._prompt = prompt_question_rewrite
-
-        self._chain = self._prompt | self._model
-
-    async def process(self, state: QaState) -> QaState:
-        try:
-            question = state.get("question")
-            feedback_rv = state.get("feedback_rv")
-
-            response = await self._chain.ainvoke(
-                {"question": question, "feedback": feedback_rv}
-            )
-
-        except Exception as e:
-            logger.exception(e)
-        finally:
-            state.update(question=response.content)
-            logger.info("[QuestionReWrite] process executed")
-        return state
-
-
-class Writer(BaseAgent):
-    def __init__(self, tools: Sequence[BaseTool] | None = None) -> None:
-        super().__init__(agent_name="writer", state=QaState)
-
-        self._prompt = prompt_writer
-
-        self._chain = self._prompt | self._model
-
-    async def process(self, state: QaState) -> QaState:
-        try:
-            generate = state.get("generate")
-            question = state.get("question")
-            response = await self._chain.ainvoke(
-                {"question": question, "generate": generate}
-            )
-            answer = response.content
-
-        except Exception as e:
-            logger.exception(e)
-        finally:
-            state.update(answer=answer)
-            logger.info("[Write] process executed")
-        return state
+from src.agents.utils import logger
 
 
 class QaAgent(BaseAgent):
