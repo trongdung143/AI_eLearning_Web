@@ -1,6 +1,8 @@
 from typing import Sequence
 import os
 import shutil
+import fitz
+import os
 from src.agents.utils import format_document
 from src.agents.lecturer.reviewer import Reviewer
 from src.agents.lecturer.lecturer_state import LecturerState
@@ -151,25 +153,41 @@ class LecturerAgent(BaseAgent):
             page_index = state.get("page_index")
             lesson_id = state.get("lesson_id")
             file_base = state.get("slide_dir")
-            file_path = f"{file_base}/slide_{page_index}.pdf"
+            pdf_path = f"{file_base}/slide_{page_index}.pdf"
+            png_path = f"{file_base}/slide_{page_index}.png"
             slide_urls = state.get("slide_urls", [])
 
+            # --- 1️⃣ Convert PDF -> PNG ---
+            if not os.path.exists(pdf_path):
+                raise FileNotFoundError(f"PDF not found: {pdf_path}")
+
+            doc = fitz.open(pdf_path)
+            page = doc[0]  # mỗi slide chỉ có 1 trang
+            pix = page.get_pixmap(dpi=200)  # tăng dpi để ảnh nét hơn
+            pix.save(png_path)
+
+            # --- 2️⃣ Upload PNG lên Cloudinary ---
             upload_result = cloudinary.uploader.upload(
-                file_path,
-                resource_type="raw",
+                png_path,
+                resource_type="image",
                 public_id=f"slide_{page_index}",
                 folder=lesson_id,
                 overwrite=True,
+                format="png",
             )
 
             secure_url = upload_result.get("secure_url")
             slide_urls.append(secure_url)
 
+            logger.info(f"Uploaded slide {page_index} → {secure_url}")
+
         except Exception as e:
-            logger.exception(e)
+            logger.exception(f"Error uploading slide {page_index}: {e}")
+
         finally:
             state.update(slide_urls=slide_urls)
             logger.info("[LecturerAgent] _upload_document executed")
+
         return state
 
     async def _document_to_vector(self, state: LecturerState) -> LecturerState:
