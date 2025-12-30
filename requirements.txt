@@ -3,8 +3,6 @@ langchain-community
 fastapi
 uvicorn
 pymupdf
-langchain_huggingface
-langchain_together
 langchain-google-genai
 python-dotenv
 tf-keras
@@ -14,7 +12,6 @@ langgraph
 python-multipart
 langsmith
 tavily-python
-chromadb
 faiss-cpu
 cloudinary
 pinecone

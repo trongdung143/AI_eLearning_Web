@@ -1,6 +1,5 @@
 from src.agents.qa.qa import QaAgent
 from langgraph.graph import StateGraph
-from langchain_core.messages import HumanMessage
 from src.agents.state import State
 from src.agents.lecturer.lecturer import LecturerAgent
 from langgraph.checkpoint.memory import MemorySaver
@@ -45,6 +44,6 @@ workflow.add_conditional_edges(
 workflow.add_edge("qa", "__end__")
 workflow.add_edge("lecturer", "__end__")
 
-graph = workflow.compile()  # checkpointer=MemorySaver())
+graph = workflow.compile(checkpointer=MemorySaver())
 qa_graph = qa.get_subgraph()
 lecturer_graph = lecturer.get_subgraph()

@@ -1,0 +1,25 @@
+[project]
+name = "ai-elearning-web"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "cloudinary>=1.44.1",
+    "faiss-cpu>=1.13.2",
+    "fastapi>=0.128.0",
+    "langchain>=1.2.0",
+    "langchain-community>=0.4.1",
+    "langchain-google-genai>=4.1.2",
+    "langgraph>=1.0.5",
+    "langsmith>=0.5.1",
+    "pinecone>=8.0.0",
+    "pydantic>=2.12.5",
+    "pymupdf>=1.26.7",
+    "pypdf>=6.5.0",
+    "python-dotenv>=1.2.1",
+    "python-multipart>=0.0.21",
+    "tavily-python>=0.7.17",
+    "tf-keras>=2.20.1",
+    "uvicorn>=0.40.0",
+]

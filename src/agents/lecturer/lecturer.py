@@ -129,7 +129,6 @@ class LecturerAgent(BaseAgent):
 
             if page_index >= len(documents):
                 next_node = "document_to_vector"
-
             else:
                 next_node = "generate_lecture"
                 current_page = documents[page_index]
@@ -157,16 +156,14 @@ class LecturerAgent(BaseAgent):
             png_path = f"{file_base}/slide_{page_index}.png"
             slide_urls = state.get("slide_urls", [])
 
-            # --- 1️⃣ Convert PDF -> PNG ---
             if not os.path.exists(pdf_path):
                 raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
             doc = fitz.open(pdf_path)
-            page = doc[0]  # mỗi slide chỉ có 1 trang
-            pix = page.get_pixmap(dpi=200)  # tăng dpi để ảnh nét hơn
+            page = doc[0]
+            pix = page.get_pixmap(dpi=200)
             pix.save(png_path)
 
-            # --- 2️⃣ Upload PNG lên Cloudinary ---
             upload_result = cloudinary.uploader.upload(
                 png_path,
                 resource_type="image",
@@ -241,7 +238,6 @@ class LecturerAgent(BaseAgent):
         except Exception as e:
             logger.exception(e)
         finally:
-
             state.update(slide_dir=output_dir)
             logger.info("[LecturerAgent] _split_document executed")
         return state

@@ -37,5 +37,10 @@ async def block_malicious_requests(request: Request, call_next):
         return JSONResponse(status_code=500, content={"detail": "Lỗi máy chủ nội bộ."})
 
 
+@app.get("/")
+async def root():
+    return {"message": "Hello, World!"}
+
+
 app.include_router(qa.router)
 app.include_router(lecturer.router)
