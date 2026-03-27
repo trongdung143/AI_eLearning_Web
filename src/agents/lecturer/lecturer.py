@@ -267,6 +267,8 @@ class LecturerAgent(BaseAgent):
                 )
 
             current_lecture = response.content
+            print("=========lecture=========")
+            print(current_lecture)
             state.update(current_lecture=current_lecture)
         except Exception as e:
             logger.exception(e)

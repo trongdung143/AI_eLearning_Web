@@ -20,10 +20,6 @@ class LecturerSegment(BaseAgent):
         self._chain = self._prompt | self._model
 
     async def process(self, state) -> "LecturerState":
-        """
-        Xử lý lecture segment từ current_lecture, prev_lecture,
-        phân đoạn bằng AI, clean từng đoạn và append vào lectures_segments.
-        """
         try:
             lectures_segments = state.get("lectures_segments", [])
             current_lecture = state.get("current_lecture", "")
@@ -39,7 +35,8 @@ class LecturerSegment(BaseAgent):
 
             try:
                 raw_content = getattr(response, "content", "")
-
+                print("=========segment=========")
+                print(raw_content)
                 if isinstance(raw_content, list):
                     raw_content = json.dumps({"segment": raw_content})
 
@@ -67,6 +64,8 @@ class LecturerSegment(BaseAgent):
 
             if clean_lecture_segment:
                 lectures_segments.append(clean_lecture_segment)
+
+            print(lecture_segment)
             state.update(lectures_segments=lectures_segments)
 
         except Exception as e:
