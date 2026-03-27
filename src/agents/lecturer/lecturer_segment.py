@@ -4,7 +4,7 @@ from src.agents.base import BaseAgent
 from src.agents.lecturer.lecturer_state import LecturerState
 from src.agents.lecturer.prompt import prompt_lecturer_segment
 from src.agents.utils import logger
-from src.agents.utils import clean_txt
+from src.agents.utils import clean_txt, extract_content
 
 
 class LecturerSegment(BaseAgent):
@@ -34,27 +34,17 @@ class LecturerSegment(BaseAgent):
             )
 
             try:
-                raw_content = getattr(response, "content", "")
-                print("=========segment=========")
-                print(raw_content)
-                if isinstance(raw_content, list):
-                    raw_content = json.dumps({"segment": raw_content})
+                raw_content = extract_content(response)
 
                 if isinstance(raw_content, str):
                     raw_content = (
                         raw_content.replace("```json", "").replace("```", "").strip()
                     )
-                    raw_content = raw_content.replace("'", '"')
 
-                try:
-                    lecture_segment = json.loads(raw_content)
-                except json.JSONDecodeError:
-                    lecture_segment = {"segment": [raw_content]}
+                lecture_segment = json.loads(raw_content)
 
                 clean_lecture_segment = [
-                    clean_txt(seg).strip()
-                    for seg in lecture_segment.get("segment", [])
-                    if isinstance(seg, str) and seg.strip()
+                    clean_txt(seg).strip() for seg in lecture_segment.get("segment", [])
                 ]
 
                 logger.info("[LecturerAgent] Lecture segment parsed successfully")

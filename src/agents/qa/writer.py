@@ -1,7 +1,7 @@
 from src.agents import state
 from src.agents.qa.prompt import prompt_writer
 from src.agents.qa.qa_state import QaState
-from src.agents.utils import logger
+from src.agents.utils import logger, extract_content
 from src.agents.base import BaseAgent
 
 
@@ -20,7 +20,7 @@ class Writer(BaseAgent):
             response = await self._chain.ainvoke(
                 {"question": question, "generate": generate}
             )
-            answer = response.content
+            answer = extract_content(response)
             state.update(answer=answer)
         except Exception as e:
             logger.exception(e)

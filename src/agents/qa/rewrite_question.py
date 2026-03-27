@@ -1,7 +1,7 @@
 from urllib import response
 from src.agents.qa.prompt import prompt_question_rewrite
 from src.agents.qa.qa_state import QaState
-from src.agents.utils import logger
+from src.agents.utils import logger, extract_content
 from src.agents.base import BaseAgent
 
 
@@ -21,7 +21,7 @@ class QuestionReWrite(BaseAgent):
             response = await self._chain.ainvoke(
                 {"question": question, "feedback": feedback_rv}
             )
-            state.update(question=response.content)
+            state.update(question=extract_content(response))
         except Exception as e:
             logger.exception(e)
         finally:

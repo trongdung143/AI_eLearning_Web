@@ -5,18 +5,9 @@ import logging
 logger = logging.getLogger(__name__)
 
 import re
-from typing import Union
 
 
-def clean_txt(txt: Union[str, list]) -> str:
-    if isinstance(txt, list):
-        txt = " ".join(str(x) for x in txt)
-
-    if not isinstance(txt, str):
-        txt = str(txt)
-
-    txt = txt.replace("```json", "").replace("```", "").strip()
-
+def clean_txt(txt: str) -> str:
     txt = (
         txt.replace("\\n", " ").replace("\n", " ").replace("\t", " ").replace("\r", " ")
     )
@@ -30,3 +21,7 @@ def clean_txt(txt: Union[str, list]) -> str:
 
 def format_document(current_page: Document) -> str:
     return current_page.page_content
+
+
+def extract_content(response) -> str:
+    return response.content[-1]["text"]

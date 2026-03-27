@@ -19,7 +19,7 @@ from src.agents.qa.writer import Writer
 from src.agents.qa.reviewer import Reviewer
 from src.agents.qa.rewrite_question import QuestionReWrite
 
-from src.agents.utils import logger
+from src.agents.utils import logger, extract_content
 
 
 class QaAgent(BaseAgent):
@@ -136,7 +136,7 @@ class QaAgent(BaseAgent):
                 {"context": full_txt, "question": question, "feedback": feedback_sp}
             )
 
-            generate = response.content
+            generate = extract_content(response)
             state.update(generate=generate)
         except Exception as e:
             logger.exception(e)

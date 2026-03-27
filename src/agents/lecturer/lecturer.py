@@ -3,7 +3,7 @@ import os
 import shutil
 import fitz
 import os
-from src.agents.utils import format_document
+from src.agents.utils import format_document, extract_content
 from src.agents.lecturer.reviewer import Reviewer
 from src.agents.lecturer.lecturer_state import LecturerState
 from src.agents.lecturer.lecturer_segment import LecturerSegment
@@ -265,8 +265,7 @@ class LecturerAgent(BaseAgent):
                         "feedback": feedback,
                     }
                 )
-
-            current_lecture = response.content
+            current_lecture = extract_content(response)
             print("=========lecture=========")
             print(current_lecture)
             state.update(current_lecture=current_lecture)
