@@ -15,5 +15,5 @@ ENV PORT=8123
 EXPOSE $PORT
 
 # Use environment variable for port
-CMD python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT
+CMD python -m uvicorn src.main:app --host 0.0.0.0 --port $PORT
 
