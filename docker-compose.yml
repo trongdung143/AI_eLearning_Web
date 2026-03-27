@@ -7,5 +7,5 @@ services:
     image: ai-myapi:latest
     environment:
       - PYTHONUNBUFFERED=1
-    port:
+    ports:
       - "8123:8123"
