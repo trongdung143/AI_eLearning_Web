@@ -20,40 +20,46 @@ class LecturerSegment(BaseAgent):
         self._chain = self._prompt | self._model
 
     async def process(self, state: LecturerState) -> LecturerState:
-
         try:
             lectures_segments = state.get("lectures_segments", [])
             current_lecture = state.get("current_lecture", "")
             prev_lecture = state.get("prev_lecture", "")
             clean_lecture_segment = []
+
             response = await self._chain.ainvoke(
                 {"previous_lecture": prev_lecture, "current_lecture": current_lecture}
             )
 
             try:
                 raw_content = getattr(response, "content", "")
+                if isinstance(raw_content, list):
+                    raw_content = " ".join(str(x) for x in raw_content)
 
-                raw_content = (
-                    raw_content.replace("```json", "").replace("```", "").strip()
-                )
+                if "```json" in raw_content or "```" in raw_content:
+                    raw_content = (
+                        raw_content.replace("```json", "").replace("```", "").strip()
+                    )
 
                 lecture_segment = json.loads(raw_content)
 
                 clean_lecture_segment = [
                     clean_txt(seg).strip()
-                    for seg in lecture_segment.get("segment")
+                    for seg in lecture_segment.get("segment", [])
                     if isinstance(seg, str) and seg.strip()
                 ]
                 logger.info("[LecturerAgent] Lecture segment parsed successfully")
+
             except Exception as e:
                 logger.exception(f"[LecturerAgent] Invalid JSON response: {e}")
 
             if clean_lecture_segment:
                 lectures_segments.append(clean_lecture_segment)
             state.update(lectures_segments=lectures_segments)
+
         except Exception as e:
             logger.exception(f"[LecturerAgent] Error processing lecture segment: {e}")
 
         finally:
             logger.info("[LecturerAgent] _process_lecture_segment executed")
+
         return state
