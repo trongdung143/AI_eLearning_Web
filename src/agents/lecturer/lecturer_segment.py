@@ -19,12 +19,19 @@ class LecturerSegment(BaseAgent):
 
         self._chain = self._prompt | self._model
 
-    async def process(self, state: LecturerState) -> LecturerState:
+    async def process(self, state) -> "LecturerState":
+        """
+        Xử lý lecture segment từ current_lecture, prev_lecture,
+        phân đoạn bằng AI, clean từng đoạn và append vào lectures_segments.
+        """
         try:
             lectures_segments = state.get("lectures_segments", [])
             current_lecture = state.get("current_lecture", "")
             prev_lecture = state.get("prev_lecture", "")
             clean_lecture_segment = []
+
+            current_lecture = clean_txt(current_lecture)
+            prev_lecture = clean_txt(prev_lecture)
 
             response = await self._chain.ainvoke(
                 {"previous_lecture": prev_lecture, "current_lecture": current_lecture}
@@ -32,24 +39,27 @@ class LecturerSegment(BaseAgent):
 
             try:
                 raw_content = getattr(response, "content", "")
-                if isinstance(raw_content, list):
-                    raw_content = " ".join(str(x) for x in raw_content)
-
-                if "```json" in raw_content or "```" in raw_content:
-                    raw_content = (
-                        raw_content.replace("```json", "").replace("```", "").strip()
-                    )
 
                 if isinstance(raw_content, list):
                     raw_content = json.dumps({"segment": raw_content})
 
-                lecture_segment = json.loads(raw_content)
+                if isinstance(raw_content, str):
+                    raw_content = (
+                        raw_content.replace("```json", "").replace("```", "").strip()
+                    )
+                    raw_content = raw_content.replace("'", '"')
+
+                try:
+                    lecture_segment = json.loads(raw_content)
+                except json.JSONDecodeError:
+                    lecture_segment = {"segment": [raw_content]}
 
                 clean_lecture_segment = [
                     clean_txt(seg).strip()
                     for seg in lecture_segment.get("segment", [])
                     if isinstance(seg, str) and seg.strip()
                 ]
+
                 logger.info("[LecturerAgent] Lecture segment parsed successfully")
 
             except Exception as e:
