@@ -9,7 +9,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Make port configurable via environment variable
-ENV PORT=8000
+ENV PORT=8123
 
 # Expose the port
 EXPOSE $PORT

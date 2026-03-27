@@ -48,11 +48,12 @@ class LecturerSegment(BaseAgent):
             except Exception as e:
                 logger.exception(f"[LecturerAgent] Invalid JSON response: {e}")
 
+            if clean_lecture_segment:
+                lectures_segments.append(clean_lecture_segment)
+            state.update(lectures_segments=lectures_segments)
         except Exception as e:
             logger.exception(f"[LecturerAgent] Error processing lecture segment: {e}")
 
         finally:
-            if clean_lecture_segment:
-                lectures_segments.append(clean_lecture_segment)
-            state.update(lectures_segments=lectures_segments)
+            logger.info("[LecturerAgent] _process_lecture_segment executed")
         return state

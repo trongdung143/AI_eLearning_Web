@@ -1,3 +1,4 @@
+from urllib import response
 from src.agents.qa.prompt import prompt_question_rewrite
 from src.agents.qa.qa_state import QaState
 from src.agents.utils import logger
@@ -20,10 +21,10 @@ class QuestionReWrite(BaseAgent):
             response = await self._chain.ainvoke(
                 {"question": question, "feedback": feedback_rv}
             )
-
+            state.update(question=response.content)
         except Exception as e:
             logger.exception(e)
         finally:
-            state.update(question=response.content)
+
             logger.info("[QuestionReWrite] process executed")
         return state

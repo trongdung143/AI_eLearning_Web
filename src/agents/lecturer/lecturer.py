@@ -133,9 +133,6 @@ class LecturerAgent(BaseAgent):
                 next_node = "generate_lecture"
                 current_page = documents[page_index]
 
-        except Exception as e:
-            logger.exception(e)
-        finally:
             if page_index >= len(documents):
                 state.update(next_node=next_node)
             else:
@@ -144,6 +141,10 @@ class LecturerAgent(BaseAgent):
                     page_index=page_index + 1,
                     next_node=next_node,
                 )
+        except Exception as e:
+            logger.exception(e)
+        finally:
+
             logger.info("[LecturerAgent] _receive_document executed")
         return state
 
@@ -177,12 +178,12 @@ class LecturerAgent(BaseAgent):
             slide_urls.append(secure_url)
 
             logger.info(f"Uploaded slide {page_index} → {secure_url}")
-
+            state.update(slide_urls=slide_urls)
         except Exception as e:
             logger.exception(f"Error uploading slide {page_index}: {e}")
 
         finally:
-            state.update(slide_urls=slide_urls)
+
             logger.info("[LecturerAgent] _upload_document executed")
 
         return state
@@ -234,11 +235,11 @@ class LecturerAgent(BaseAgent):
                 output_path = os.path.join(output_dir, f"slide_{i+1}.pdf")
                 with open(output_path, "wb") as f:
                     writer.write(f)
-
+            state.update(slide_dir=output_dir)
         except Exception as e:
             logger.exception(e)
         finally:
-            state.update(slide_dir=output_dir)
+
             logger.info("[LecturerAgent] _split_document executed")
         return state
 
@@ -266,11 +267,11 @@ class LecturerAgent(BaseAgent):
                 )
 
             current_lecture = response.content
-
+            state.update(current_lecture=current_lecture)
         except Exception as e:
             logger.exception(e)
         finally:
-            state.update(current_lecture=current_lecture)
+
             logger.info("[LecturerAgent] _genarate_lecture executed")
         return state
 
@@ -280,11 +281,11 @@ class LecturerAgent(BaseAgent):
             if os.path.exists(document_path):
                 loader = PyPDFLoader(document_path)
                 documents = await loader.aload()
-
+            state.update(documents=documents)
         except Exception as e:
             logger.exception(e)
         finally:
-            state.update(documents=documents)
+
             logger.info("[LecturerAgent] _read_documents executed")
         return state
 
@@ -314,7 +315,7 @@ class LecturerAgent(BaseAgent):
                 slide_urls[i]: (lectures[i], lectures_segments[i])
                 for i in range(len(slide_urls))
             }
-
+            state.update(lecture=lecture)
         except Exception as e:
             logger.exception(e)
         finally:
@@ -330,6 +331,6 @@ class LecturerAgent(BaseAgent):
                     shutil.rmtree(slide_dir)
                 except Exception as e:
                     logger.exception(f"Could not remove slide folder: {e}")
-            state.update(lecture=lecture)
+
             logger.info("[LecturerAgent] process executed")
         return state

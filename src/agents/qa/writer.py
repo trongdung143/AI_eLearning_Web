@@ -1,3 +1,4 @@
+from src.agents import state
 from src.agents.qa.prompt import prompt_writer
 from src.agents.qa.qa_state import QaState
 from src.agents.utils import logger
@@ -20,10 +21,10 @@ class Writer(BaseAgent):
                 {"question": question, "generate": generate}
             )
             answer = response.content
-
+            state.update(answer=answer)
         except Exception as e:
             logger.exception(e)
         finally:
-            state.update(answer=answer)
+
             logger.info("[Write] process executed")
         return state

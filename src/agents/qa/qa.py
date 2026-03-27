@@ -8,6 +8,7 @@ from langchain_google_genai.embeddings import GoogleGenerativeAIEmbeddings
 from langchain_core.messages import AIMessage
 from langchain_core.tools.base import BaseTool
 
+from src.agents import state
 from src.agents.base import BaseAgent
 from src.agents.qa.prompt import prompt_qa
 from src.agents.state import State
@@ -117,11 +118,11 @@ class QaAgent(BaseAgent):
 
             if retriever:
                 response = await retriever.ainvoke(question)
-
+            state.update(documents=response)
         except Exception as e:
             logger.exception(e)
         finally:
-            state.update(documents=response)
+
             logger.info("[QaAgent] _retrieve executed")
         return state
 
@@ -136,11 +137,11 @@ class QaAgent(BaseAgent):
             )
 
             generate = response.content
-
+            state.update(generate=generate)
         except Exception as e:
             logger.exception(e)
         finally:
-            state.update(generate=generate)
+
             logger.info("[QaAgent] _genarate executed")
         return state
 
@@ -155,9 +156,10 @@ class QaAgent(BaseAgent):
             response = await sub_graph.ainvoke(input=input_state)
 
             answer = response.get("answer")
+            state.update(result=answer, messages=[AIMessage(content=answer)])
         except Exception as e:
             logger.exception(e)
         finally:
-            state.update(result=answer, messages=[AIMessage(content=answer)])
+
             logger.info("[QaAgent] process executed")
         return state

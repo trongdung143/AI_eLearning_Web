@@ -1,3 +1,4 @@
+from src.agents import state
 from src.agents.qa.prompt import prompt_reviewer
 from src.agents.qa.qa_state import QaState
 from src.agents.qa.qa_state import ReviewerResponseFormat
@@ -41,10 +42,10 @@ class Reviewer(BaseAgent):
                 next_node = "re_question"
             else:
                 next_node = "generate"
-
+            state.update(next_node=next_node, bs_rv=binary_score, feedback_rv=feedback)
         except Exception as e:
             logger.exception(e)
         finally:
-            state.update(next_node=next_node, bs_rv=binary_score, feedback_rv=feedback)
+
             logger.info("[Reviewer] process executed")
         return state

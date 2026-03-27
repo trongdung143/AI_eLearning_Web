@@ -1,3 +1,4 @@
+from src.agents import state
 from src.agents.qa.prompt import prompt_supervisor
 from src.agents.qa.qa_state import QaState
 from src.agents.qa.qa_state import SupervisorResponseFormat
@@ -41,10 +42,10 @@ class Supervisor(BaseAgent):
                 feedback = getattr(response, "feedback", "")
             else:
                 next_node = "writer"
-
+            state.update(next_node=next_node, feedback_sp=feedback, bs_sp=binary_score)
         except Exception as e:
             logger.exception(e)
         finally:
-            state.update(next_node=next_node, feedback_sp=feedback, bs_sp=binary_score)
+
             logger.info("[Supervisor] process executed")
         return state
