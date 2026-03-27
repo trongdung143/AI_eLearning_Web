@@ -4,9 +4,9 @@ from langchain_core.tools.base import BaseTool
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
-
+from langchain_openai import ChatOpenAI
 from src.agents.state import State
-from src.config.setup import GOOGLE_API_KEY
+from src.config.setup import GOOGLE_API_KEY, OPENROUTER_API_KEY
 
 
 class BaseAgent:
@@ -23,12 +23,21 @@ class BaseAgent:
         """
         self._tools = list(tools or [])
         self._agent_name = agent_name
-
-        self._model = ChatGoogleGenerativeAI(
-            model="gemini-3-flash-preview",
-            google_api_key=GOOGLE_API_KEY,
-            disable_streaming=False,
+        self._model = ChatOpenAI(
+            model="openai/gpt-oss-120b",
+            temperature=0,
+            base_url="https://openrouter.ai/api/v1",
+            api_key=OPENROUTER_API_KEY,
+            streaming=True,
+            reasoning_effort="medium",
+            timeout=10.0,
         ).bind_tools(self._tools)
+
+        # self._model = ChatGoogleGenerativeAI(
+        #     model="gemini-3-flash-preview",
+        #     google_api_key=GOOGLE_API_KEY,
+        #     disable_streaming=False,
+        # ).bind_tools(self._tools)
 
         self._sub_graph = StateGraph(state)
 

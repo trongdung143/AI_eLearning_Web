@@ -24,4 +24,4 @@ def format_document(current_page: Document) -> str:
 
 
 def extract_content(response) -> str:
-    return response.content[-1]["text"]
+    return response.content  # [-1]["text"]
