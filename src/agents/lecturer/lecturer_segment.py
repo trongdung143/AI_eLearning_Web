@@ -40,6 +40,9 @@ class LecturerSegment(BaseAgent):
                         raw_content.replace("```json", "").replace("```", "").strip()
                     )
 
+                if isinstance(raw_content, list):
+                    raw_content = json.dumps({"segment": raw_content})
+
                 lecture_segment = json.loads(raw_content)
 
                 clean_lecture_segment = [

@@ -47,7 +47,6 @@ class Reviewer(BaseAgent):
             else:
                 next_node = "lectures_segments"
                 feedback = ""
-                current_lecture = clean_txt(current_lecture)
                 prev_lecture = current_lecture
                 lectures.append(current_lecture)
 
